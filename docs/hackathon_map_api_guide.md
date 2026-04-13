@@ -77,6 +77,7 @@ Inputs:
 Output (`StepResult`):
 - `actual_velocity`: executed speed after terrain and robot effects.
 - `is_stuck`: stuck signal for the timestep. `None` for drones (stuck state is not tracked).
+- `battery_value`: current battery value after the timestep's battery update.
 
 ### `perceive(robot_id, position) -> list[TerrainObservation]`
 The perception radius is configured in `MapConfig.perceive_radius`.
