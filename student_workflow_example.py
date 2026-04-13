@@ -41,7 +41,10 @@ step_result = map_api.step(
     command_velocity=command_velocity,
     command_orientation=command_orientation,
 )
-print("Step result:", step_result)
+print("Step result:")
+print(f"  actual_velocity={step_result.actual_velocity:.3f}")
+print(f"  is_stuck={step_result.is_stuck}")
+print(f"  battery_value={step_result.battery_value:.3f}")
 
 # 5) Perceive local map around the same position.
 observations = map_api.perceive(robot_id=robot_id, position=position)

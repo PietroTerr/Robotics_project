@@ -20,6 +20,7 @@ class RobotType(str, Enum):
 class StepResult:
     actual_velocity: float
     is_stuck: bool | None
+    battery_value: float
 
 
 @dataclass(frozen=True)
@@ -322,16 +323,16 @@ class MapAPICore:
 
         # Prevent movement if battery too low
         if state.battery_value <= state.min_battery_value + 1e-8:
-            return StepResult(actual_velocity=0.0, is_stuck=default_is_stuck)
+            return StepResult(actual_velocity=0.0, is_stuck=default_is_stuck, battery_value=state.battery_value)
 
         if state.immobilized_when_stuck and self._is_currently_stuck(state):
             self._advance_stuck_timer(state)
-            return StepResult(actual_velocity=0.0, is_stuck=True)
+            return StepResult(actual_velocity=0.0, is_stuck=True, battery_value=state.battery_value)
 
         capped_command_speed = min(commanded_speed, state.max_velocity)
 
         if not state.affected_by_terrain:
-            return StepResult(actual_velocity=capped_command_speed, is_stuck=None)
+            return StepResult(actual_velocity=capped_command_speed, is_stuck=None, battery_value=state.battery_value)
 
         cell_x, cell_y = int(position[0]), int(position[1])
         cell = self._cell_at(position)
@@ -344,7 +345,7 @@ class MapAPICore:
         actual_velocity = capped_command_speed * effective_traversability
 
         if not state.affected_by_stuck_events:
-            return StepResult(actual_velocity=actual_velocity, is_stuck=default_is_stuck)
+            return StepResult(actual_velocity=actual_velocity, is_stuck=default_is_stuck, battery_value=state.battery_value)
 
         if self._config.use_stuck_event_map:
             did_get_stuck = cell.stuck_event
@@ -366,10 +367,10 @@ class MapAPICore:
                     state.stuck_steps_remaining = -1
                 else:
                     state.stuck_steps_remaining = max(1, self._config.stuck_duration_steps)
-                return StepResult(actual_velocity=0.0, is_stuck=True)
-            return StepResult(actual_velocity=actual_velocity, is_stuck=True)
+                return StepResult(actual_velocity=0.0, is_stuck=True, battery_value=state.battery_value)
+            return StepResult(actual_velocity=actual_velocity, is_stuck=True, battery_value=state.battery_value)
 
-        return StepResult(actual_velocity=actual_velocity, is_stuck=default_is_stuck)
+        return StepResult(actual_velocity=actual_velocity, is_stuck=default_is_stuck, battery_value=state.battery_value)
 
     def perceive(
         self,
