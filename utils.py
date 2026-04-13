@@ -39,7 +39,7 @@ def move_rover_to_target(map_api: MapAPI, robot_id: str, start: tuple, target: t
         dy = ty - y
         dist = math.sqrt(dx**2 + dy**2)
  
-        if dist < 0.25:
+        if dist < 0.001:
             print(f"REACHED target! Steps: {int(total_time/dt)}, Stuck events: {stuck_count}")
             break
  
