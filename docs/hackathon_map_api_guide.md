@@ -10,6 +10,8 @@ The simulation exposes a `MapAPI` object with three relevant methods:
 
 `command_orientation` is in radians, measured from global +X.
 
+> **Position semantics:** `position` in both `step` and `perceive` is always the robot's continuous world coordinate `(x, y)` as floats — the same coordinate your controller tracks. The API handles all internal terrain cell lookups. You never need to think in terms of grid indices.
+
 ## Constructor (Student Version)
 Student code receives a CSV map file prepared by organizers and passes the path directly into `MapAPI`.
 
@@ -51,9 +53,13 @@ api.register_robot("rover_1", "rover")
 
 ## Robot Types
 Pass the robot type as a plain string to `register_robot`:
-- `"drone"`: not slowed by terrain, never immobilized by stuck behavior. `is_stuck` is always `None`.
-- `"scout"`: terrain affects velocity; it can report stuck through `is_stuck`, but it is not immobilized.
-- `"rover"`: terrain affects velocity and it can be immobilized by stuck behavior.
+- `"drone"`: not slowed by terrain, never immobilized by stuck behavior. `is_stuck` is always `None`. Current profile: `max_velocity=1.0`, `power_draw=0.02`, `battery_recharge=0.002`, `battery_value in [0.0, 1.0]`.
+- `"scout"`: terrain affects velocity; it can report stuck through `is_stuck`, but it is not immobilized. Current profile: `max_velocity=0.05`, no battery draw or recharge.
+- `"rover"`: terrain affects velocity and it can be immobilized by stuck behavior. Current profile: `max_velocity=0.01`, no battery draw or recharge.
+
+Useful current drone timing numbers:
+- flight time from full to empty at max speed: `50 s`
+- recharge time from empty to full: `500 s`
 
 ## Minimal Usage Pattern
 Typical control loop per timestep:
@@ -70,7 +76,7 @@ Registers one robot in the simulation.
 ### `step(robot_id, position, command_velocity, command_orientation) -> StepResult`
 Inputs:
 - `robot_id`: string used at registration.
-- `position`: `(x, y)` grid cell.
+- `position`: `(x, y)` tuple of **floats** — the robot's current continuous world coordinates. The API maps this to the appropriate terrain cell internally. You do not need to know anything about the map layout or cell indices.
 - `command_velocity`: desired speed.
 - `command_orientation`: heading in radians from global +X.
 
@@ -81,6 +87,10 @@ Output (`StepResult`):
 
 ### `perceive(robot_id, position) -> list[TerrainObservation]`
 The perception radius is configured in `MapConfig.perceive_radius`.
+
+Inputs:
+- `robot_id`: string used at registration.
+- `position`: `(x, y)` tuple of **floats** — the robot's current continuous world coordinates. The API determines which cells fall within the perception radius internally.
 
 Returns local observations around `position`.
 Each observation contains:
@@ -95,6 +105,7 @@ Each observation contains:
 - Hidden fields like traversability and stuck probability are not returned by `perceive`.
 - Use only `perceive` and `step` outputs in your policy logic.
 - Scoring uses a different facade with different internal storage names.
+- Competition runs currently use `maximumTime = 1000000` seconds.
 
 ## Telemetry & Logging
 The runtime maintains append-only logs for analysis and validation.

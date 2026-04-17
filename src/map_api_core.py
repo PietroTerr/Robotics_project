@@ -113,11 +113,11 @@ class RobotProfile:
 ROBOT_PROFILES: Dict[str, RobotProfile] = {
     "drone": RobotProfile(
         initial_battery_value=1.0,
-        power_draw=0.12,
-        battery_recharge=0.03,
+        power_draw=0.02,
+        battery_recharge=0.002,
         min_battery_value=0.0,
         max_battery_value=1.0,
-        max_velocity=2.0,
+        max_velocity=1.0,
         affected_by_terrain=False,
         affected_by_stuck_events=False,
         immobilized_when_stuck=False,
@@ -128,7 +128,7 @@ ROBOT_PROFILES: Dict[str, RobotProfile] = {
         battery_recharge=0.00,
         min_battery_value=0.0,
         max_battery_value=1.0,
-        max_velocity=0.5,
+        max_velocity=0.05,
         affected_by_terrain=True,
         affected_by_stuck_events=True,
         immobilized_when_stuck=False,
@@ -139,7 +139,7 @@ ROBOT_PROFILES: Dict[str, RobotProfile] = {
         battery_recharge=0.00,
         min_battery_value=0.0,
         max_battery_value=1.0,
-        max_velocity=0.1,
+        max_velocity=0.01,
         affected_by_terrain=True,
         affected_by_stuck_events=True,
         immobilized_when_stuck=True,
@@ -284,7 +284,7 @@ class MapAPICore:
     def step(
         self,
         robot_id: str,
-        position: Tuple[int, int],
+        position: Tuple[float, float],
         command_velocity: float,
         command_orientation: float,
     ) -> StepResult:
@@ -375,7 +375,7 @@ class MapAPICore:
     def perceive(
         self,
         robot_id: str,
-        position: Tuple[int, int],
+        position: Tuple[float, float],
     ) -> List[TerrainObservation]:
         """Return visible terrain features in a radius around the robot position.
 
@@ -426,7 +426,7 @@ class MapAPICore:
         if state.stuck_steps_remaining > 0:
             state.stuck_steps_remaining -= 1
 
-    def _cell_at(self, position: Tuple[int, int]) -> HiddenTerrainCell:
+    def _cell_at(self, position: Tuple[float, float]) -> HiddenTerrainCell:
         x, y = int(position[0]), int(position[1])
         if not self._in_bounds(x, y):
             raise ValueError("position is outside terrain bounds")

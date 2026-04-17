@@ -4,6 +4,7 @@ In this competition, each team must design an exploration strategy to guide robo
 
 ## Instructions
 - The governor should be packaged as a function callable as: `runGovernor(mapApi_instance, startPoint, targetPoint, maximumTime)`.
+- For the current competition setup, use `maximumTime = 1000000` seconds.
 - The governor should return the following tuple: `(reached_target: boolean, last_distance_from_target: double, time_elapsed: double, drone_travel: double, scout_travel: double, rover_travel: double, perceive_calls: int, step_calls: int, stuck_events: int)`.
 - Metrics can be queried from the `MapAPI` instance:
   - `get_method_counts()` returns count of `register`, `step`, `perceive` calls
@@ -20,11 +21,15 @@ In this competition, each team must design an exploration strategy to guide robo
 
 ## Agents Setup
 - **Drone**:
-	unaffected by terrain traversability, unstuckable, moves at constant speed of **2 m/s**, omnidirectionally.
+	unaffected by terrain traversability, unstuckable, moves at constant speed of **1.0 cells/s**, omnidirectionally.
+	Current runtime profile: `initial_battery_value=1.0`, `power_draw=0.02`, `battery_recharge=0.002`, `min_battery_value=0.0`, `max_battery_value=1.0`, `max_velocity=1.0`.
+	At max speed this corresponds to **50 s** flight time from full to empty and **500 s** recharge time from empty to full.
 - **Scout**:
-	affected by traversability, can *sense* stuck events, does not get stuck, moves at **0.5 m/s**.
+	affected by traversability, can *sense* stuck events, does not get stuck, moves at **0.05 cells/s**.
+	Current runtime profile: `initial_battery_value=1.0`, `power_draw=0.0`, `battery_recharge=0.0`, `min_battery_value=0.0`, `max_battery_value=1.0`, `max_velocity=0.05`.
 - **Rover**:
-	affected by traversability, can get stuck (and receives a score penalty each time), moves at **0.1 m/s**.
+	affected by traversability, can get stuck (and receives a score penalty each time), moves at **0.01 cells/s**.
+	Current runtime profile: `initial_battery_value=1.0`, `power_draw=0.0`, `battery_recharge=0.0`, `min_battery_value=0.0`, `max_battery_value=1.0`, `max_velocity=0.01`.
 
 ## Competition
 - Teams have to provide the organizers with their codebase, formatted as requested in the instructions, detailed above.
@@ -54,3 +59,4 @@ The team with the **lowest** $J$ wins.
 ## Warnings
 - Several automated checks will be made to ensure the `map_api` is not tampered with, that all rules are followed, and that the outputs of the governor are legit.
 - The `map_api.py` file at your disposal differs from the one used during scoring in many aspects, i.e. the names of properties, in order to make exploits harder. These changes will never affect the performance of strategies that use only the provided methods.
+- Organizer-generated traversability is floored at the configured `trav_low_baseline`, so zero traversability cells are not intended in the current setup.
