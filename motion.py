@@ -71,13 +71,28 @@ class RobotMovementBase:
         self.robot_type = robot_type
         self.x, self.y = start_pos
         self.total_time_spent = 0.0
-        
         self.map_api.register_robot(self.robot_id, self.robot_type)
+
+        # ---  temporary
+        self.dt = 0.1
+        self.speed = 1.0
+
         
     def perceive(self):
         """Standard perception, can be filtered by subclasses."""
         return self.map_api.perceive(self.robot_id, (self.x, self.y))
+    def step_towards_2(self, heading):
+        result     = self.map_api.step(
+            robot_id=self.robot_id,
+            position=(self.x, self.y),
+            command_velocity=self.speed,
+            command_orientation=heading
+        )
+        # Update physical coordinates
+        self.x += result.actual_velocity * self.dt * math.cos(heading)
+        self.y += result.actual_velocity * self.dt * math.sin(heading)
 
+        return result.is_stuck, result.actual_velocity
 
 class Drone(RobotMovementBase):
     """
@@ -96,6 +111,7 @@ class Drone(RobotMovementBase):
         
         self.flight_clock = 0.0
         self.recharge_cycles = 0
+        self.battery_state = 1 # 1.0 = fully charged, 0.0 = depleted
 
     def perceive(self):
         """
@@ -104,6 +120,25 @@ class Drone(RobotMovementBase):
         should know that Drone measurements are purely visual (texture, slope).
         """
         return super().perceive()
+    def step_towards_2(self, heading):
+        # if heading = None the drone must recharge
+        if heading is None:
+            heading = 0.0
+            self.map_api.step(self.robot_id, (self.x, self.y), 0.0, heading)
+            self.battery_state *= self.battery_state * 0.002 * 1/self.dt # battery recharges at 0.002 per second of rest (solar recharge)
+            return (self.x, self.y), self.battery_state
+        result = self.map_api.step(
+            robot_id=self.robot_id,
+            position=(self.x, self.y),
+            command_velocity=self.speed,
+            command_orientation=heading
+        )
+        # Update physical coordinates
+        self.x += result.actual_velocity * self.dt * math.cos(heading)
+        self.y += result.actual_velocity * self.dt * math.sin(heading)
+        self.battery_state -= self.battery_state * 0.02 * 1/self.dt # battery depletes at 0.02 per second of fligh
+        return None, result.actual_velocity
+
 
     def step_towards(self, target_x: float, target_y: float, dt: float) -> Tuple[bool, bool]:
         """
@@ -111,13 +146,13 @@ class Drone(RobotMovementBase):
         Returns a tuple: (reached_target, forced_recharge)
         """
         forced_recharge = getattr(self, "is_recharging", False)
-            
+
         dist = math.hypot(target_x - self.x, target_y - self.y)
         if dist < 0.1:
             return True, forced_recharge  # Reached target
-            
+
         orientation = math.atan2(target_y - self.y, target_x - self.x)
-        
+
         # If currently recharging, just rest
         if forced_recharge:
             res = self.map_api.step(self.robot_id, (self.x, self.y), 0.0, orientation)
@@ -127,7 +162,7 @@ class Drone(RobotMovementBase):
                 self.flight_clock = 0.0
                 self.recharge_cycles += 1
             return False, True
-            
+
         # Make the API step
         result = self.map_api.step(
             robot_id=self.robot_id,

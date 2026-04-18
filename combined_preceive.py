@@ -9,12 +9,10 @@ Perception data from both agents is combined into a shared TerrainMap to estimat
 traversability, with the final results plotted on a 2D grid view.
 
 """
-import time
 import math
 import random
 import numpy as np
 import matplotlib.pyplot as plt
-import networkx as nx
 from src.map_api import MapAPI
 from motion import Scout, Drone
 from data_management import TerrainMap, build_weighted_graph
