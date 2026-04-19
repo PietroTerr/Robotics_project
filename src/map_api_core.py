@@ -408,7 +408,7 @@ class MapAPICore:
                 cell = self.get_data()[y][x]
                 features = dict(cell.appearance_features)
                 features["slope"] = cell.slope
-                features["uphill_angle"] = cell.\
+                features["uphill_angle"] = cell.uphill_angle
                 observations.append(TerrainObservation(x=x, y=y, features=features))
 
         observations.sort(key=lambda obs: (obs.y, obs.x))

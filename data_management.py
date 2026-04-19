@@ -38,8 +38,8 @@ class CellData:
             self.slope = slope
         else:
             self.slope = (self.slope + slope)/2
-    def set_uphill_angle(self, uphill_angle: float | None):
-        if uphill_angle is None:
+    def set_uphill_angle(self, uphill_angle: float):
+        if self.uphill_angle is None:
             self.uphill_angle = uphill_angle
         else:
             self.uphill_angle = (self.uphill_angle + uphill_angle)/2

@@ -15,13 +15,16 @@ def main():
     rover = Rover(map_api, "rover_01", start_pos)
 
     terrain_map = TerrainMap()
-    governor = Governor(terrain_map)
-    plotter = RealTimePlot(terrain_map, [drone, scout, rover])
+    governor = Governor(terrain_map,rover,scout,drone)
+    #plotter = RealTimePlot(terrain_map, [drone, scout, rover])
 
     while True:
         # -- Get heading for each agent
         (rover_heading, scout_heading, drone_heading) = governor.get_heading()
-        if rover_heading is None: break # Reached target
+        if rover_heading is None:
+            print("Rover Heading is None")
+            drone.perceive()
+            break # Reached target
 
 
         # -- Move agents
@@ -46,7 +49,7 @@ def main():
 
         r_obs = rover.perceive()
         terrain_map.store_observation(r_obs)
-        plotter.plot()
+        #plotter.plot()
 
 def get_map_api():
     print("Loading MapAPI & Components...")
