@@ -8,7 +8,7 @@ from src.map_api import MapAPI
 def main():
 
     map_api = get_map_api()
-    start_pos = (0,0)
+    start_pos = (25,25)
 
     drone = Drone(map_api, "drone_01", start_pos)
     scout = Scout(map_api, "scout_01", start_pos)
@@ -16,8 +16,8 @@ def main():
 
     terrain_map = TerrainMap()
     governor = Governor(terrain_map,rover,scout,drone)
-    #plotter = RealTimePlot(terrain_map, [drone, scout, rover])
-
+    plotter = RealTimePlot(terrain_map,[rover,scout,drone])
+    i=0
     while True:
         # -- Get heading for each agent
         (rover_heading, scout_heading, drone_heading) = governor.get_heading()
@@ -49,7 +49,14 @@ def main():
 
         r_obs = rover.perceive()
         terrain_map.store_observation(r_obs)
-        #plotter.plot()
+        plotter.record()
+
+        """if i%50==0:
+            plotter.plot_final()
+        i+=1"""
+
+    # After the loop, choose one:
+    plotter.plot_final()     # static final state
 
 def get_map_api():
     print("Loading MapAPI & Components...")
