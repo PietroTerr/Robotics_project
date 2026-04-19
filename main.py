@@ -1,5 +1,7 @@
 from data_management import TerrainMap
+from Governor import Governor
 from motion import Drone, Scout, Rover
+from real_time_plot import RealTimePlot
 from src.map_api import MapAPI
 
 
@@ -14,11 +16,13 @@ def main():
     rover = Rover(map_api, "rover_01", start_pos)
 
     map = TerrainMap()
+    governor = Governor(map)
+    plotter = RealTimePlot(map, [drone, scout, rover])
 
     while True:
 
         # -- Get heading for each agent
-        (rover_heading, scout_heading, drone_heading) = get_heading()
+        (rover_heading, scout_heading, drone_heading) = governor.get_heading()
         if rover_heading is None: break # Reached target
 
 
@@ -44,15 +48,7 @@ def main():
 
         r_obs = rover.perceive()
         map.store_observation(r_obs)
-
-# Da implentare nel governor
-def get_heading():
-    """Return the heading of movement for each agent. This is a placeholder function and should be implemented with actual logic to determine the heading based on the current state of the agents and the environment."""
-
-    drone = 0  # drone = none if t has to recharge
-    scout = 0
-    rover = 0
-    return rover, scout, drone
+        plotter.plot()
 
 def get_map_api():
     print("Loading MapAPI & Components...")

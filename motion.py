@@ -62,6 +62,7 @@ from typing import Tuple, List, Optional
 
 from src.map_api import MapAPI
 
+
 class RobotMovementBase:
     """Base class for handling robot behavior constraints."""
     

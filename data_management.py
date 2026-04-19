@@ -54,6 +54,7 @@ class TerrainMap:
         self.grid: dict[tuple[int, int], CellData] = {}
         self.width = width
         self.height = height
+        self.grid_size = (self.width, self.height)
 
     def get_cell(self, x: int, y: int) -> CellData:
         """Helper to get a cell, automatically generating it if it doesn't already exist."""
@@ -82,7 +83,7 @@ class TerrainMap:
             cell.is_stuck = get_stuck
 
 
-    def refresh_estimation(self,):
+    def refresh_estimation(self,movement_information):
         """Placeholder for a method that would run the predictive model to update traversability and stuck probability estimates based on the current state of the map. and save stuck event"""
         pass
 
