@@ -27,9 +27,9 @@ def main():
 
 
         # -- Move agents
-        r_is_stuck, r_actual_velocity = rover.step_towards_2(rover_heading)
-        s_is_stuck, s_actual_velocity = scout.step_towards_2(scout_heading)
-        drone.step_towards_2(drone_heading)
+        r_is_stuck, r_actual_velocity = rover.step_towards(rover_heading)
+        s_is_stuck, s_actual_velocity = scout.step_towards(scout_heading)
+        drone.step_towards(drone_heading)
 
         movement_info = {
             "rover": {"position": (rover.x, rover.y),"heading": rover_heading, "is_stuck": r_is_stuck, "actual_velocity": r_actual_velocity},
