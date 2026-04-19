@@ -119,7 +119,8 @@ class Drone(RobotMovementBase):
         if heading is None:
             heading = 0.0
             self.map_api.step(self.robot_id, (self.x, self.y), 0.0, heading)
-            self.battery_state *= self.battery_state * 0.002 * 1/self.dt # battery recharges at 0.002 per second of rest (solar recharge)
+
+            self.battery_state = min(1.0, self.battery_state + (0.002 * self.dt))  # Recharge at 0.002 per second of recharge time
             return (self.x, self.y), self.battery_state
         result = self.map_api.step(
             robot_id=self.robot_id,
@@ -130,7 +131,8 @@ class Drone(RobotMovementBase):
         # Update physical coordinates
         self.x += result.actual_velocity * self.dt * math.cos(heading)
         self.y += result.actual_velocity * self.dt * math.sin(heading)
-        self.battery_state -= self.battery_state * 0.02 * 1/self.dt # battery depletes at 0.02 per second of fligh
+        self.battery_state = max(0.0, self.battery_state - (0.02 * self.dt))  # Drain
+
         return None, result.actual_velocity
 
 class Scout(RobotMovementBase):

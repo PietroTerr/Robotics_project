@@ -22,19 +22,19 @@ class CellData:
     stuck_probability_estimate: float = 0.0
     confidence: float = 0.0
 
-    def set_texture(self, texture: float | None):
-        if texture is None:
+    def set_texture(self, texture: float):
+        if self.texture is None:
             self.texture = texture
         else:
             self.texture = (self.texture + texture)/2
 
-    def set_color(self, color: float | None):
-        if color is None:
+    def set_color(self, color: float):
+        if self.color is None:
             self.color = color
         else:
             self.color = (self.color + color)/2
-    def set_slope(self, slope: float | None):
-        if slope is None:
+    def set_slope(self, slope: float):
+        if self.slope is None:
             self.slope = slope
         else:
             self.slope = (self.slope + slope)/2
@@ -63,20 +63,15 @@ class TerrainMap:
             self.grid[coords] = CellData()
         return self.grid[coords]
 
-    def store_observation(self, obs: list[TerrainObservation] | None):
+    def store_observation(self, obs: list[TerrainObservation]):
         if obs is not None:
             for ob in obs:
                 cell = self.get_cell(ob.x, ob.y)
-                cell.set_texture = ob.features.get("texture", cell.texture)
-                cell.set_color = ob.features.get("color", cell.color)
-                cell.set_slope = ob.features.get("slope", cell.slope)
-                cell.set_uphill_angle = ob.features.get("uphill_angle", cell.uphill_angle)
+                cell.set_texture(ob.features.get("texture"))
+                cell.set_color(ob.features.get("color"))
+                cell.set_slope(ob.features.get("slope"))
+                cell.set_uphill_angle(ob.features.get("uphill_angle"))
 
-                """
-                 if cell.texture is not None:
-                 cell.traversability_estimate = max(0.1, cell.texture)
-                 cell.confidence = 0.9
-                           """
     def __store_stuck_information(self, x: int, y: int, get_stuck):
         cell = self.get_cell(x,y)
         if get_stuck is not None:

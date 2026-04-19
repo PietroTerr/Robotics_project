@@ -7,7 +7,6 @@ from src.map_api import MapAPI
 
 def main():
 
-    dt = 0.1  # Time step for the simulation
     map_api = get_map_api()
     start_pos = (0,0)
 
@@ -15,12 +14,11 @@ def main():
     scout = Scout(map_api, "scout_01", start_pos)
     rover = Rover(map_api, "rover_01", start_pos)
 
-    map = TerrainMap()
-    governor = Governor(map)
-    plotter = RealTimePlot(map, [drone, scout, rover])
+    terrain_map = TerrainMap()
+    governor = Governor(terrain_map)
+    plotter = RealTimePlot(terrain_map, [drone, scout, rover])
 
     while True:
-
         # -- Get heading for each agent
         (rover_heading, scout_heading, drone_heading) = governor.get_heading()
         if rover_heading is None: break # Reached target
@@ -40,14 +38,14 @@ def main():
 
         # -- Perceive
         d_obs = drone.perceive()
-        map.store_observation(d_obs)
+        terrain_map.store_observation(d_obs)
 
         s_obs = scout.perceive()
-        map.store_observation(s_obs)
-        map.refresh_estimation(movement_info)
+        terrain_map.store_observation(s_obs)
+        terrain_map.refresh_estimation(movement_info)
 
         r_obs = rover.perceive()
-        map.store_observation(r_obs)
+        terrain_map.store_observation(r_obs)
         plotter.plot()
 
 def get_map_api():
@@ -55,3 +53,7 @@ def get_map_api():
     csv_path = "src/map_001_seed42.csv"
     map_api = MapAPI(terrain=csv_path, rng_seed=42)
     return map_api
+
+
+if __name__ == "__main__":
+        main()
