@@ -33,9 +33,9 @@ def main():
         drone.step_towards(drone_heading)
 
         movement_info = {
-            rover: {"position": (rover.x, rover.y),"heading": rover_heading, "is_stuck": r_is_stuck, "actual_velocity": r_actual_velocity},
-            scout: {"position": (scout.x, scout.y), "heading": scout_heading, "is_stuck": s_is_stuck, "actual_velocity": s_actual_velocity},
-            drone: {"position": (drone.x, drone.y), "heading": drone_heading, },
+            "rover": {"position": (rover.x, rover.y),"heading": rover_heading, "is_stuck": r_is_stuck, "actual_velocity": r_actual_velocity},
+            "scout": {"position": (scout.x, scout.y), "heading": scout_heading, "is_stuck": s_is_stuck, "actual_velocity": s_actual_velocity},
+            "drone": {"position": (drone.x, drone.y), "heading": drone_heading, },
         }
 
 
