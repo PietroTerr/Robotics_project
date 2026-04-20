@@ -2,20 +2,16 @@ from dataclasses import dataclass, field
 
 from src.map_api_core import TerrainObservation
 
-
 @dataclass
 class CellData:
-    """
-    Representation of a single grid cell within the TerrainMap. 
-    Divided cleanly into layers for raw sensory input, analytical estimates, and exploration tracking.
-    """
     # --- Layer 1: Raw observations from agents ---
     texture: float | None = None
     color: float | None = None
     slope: float | None = None
     uphill_angle: float | None = None
-
-    is_stuck: bool | None= None # None mean that we still don't have any information
+    
+    is_stuck: bool | None = None
+    real_traversability: float | None = None  # <--- NUOVO: traversabilità reale calcolata passandoci
 
     # --- Layer 2: Derived estimates (output of predictive model) ---
     traversability_estimate: float | None = None
@@ -25,24 +21,15 @@ class CellData:
     def set_texture(self, texture: float):
         if self.texture is None:
             self.texture = texture
-        else:
-            self.texture = (self.texture + texture)/2
-
     def set_color(self, color: float):
         if self.color is None:
             self.color = color
-        else:
-            self.color = (self.color + color)/2
     def set_slope(self, slope: float):
         if self.slope is None:
             self.slope = slope
-        else:
-            self.slope = (self.slope + slope)/2
     def set_uphill_angle(self, uphill_angle: float):
         if self.uphill_angle is None:
             self.uphill_angle = uphill_angle
-        else:
-            self.uphill_angle = (self.uphill_angle + uphill_angle)/2
 
 
 class TerrainMap:
@@ -78,9 +65,58 @@ class TerrainMap:
             cell.is_stuck = get_stuck
 
 
-    def refresh_estimation(self,movement_information):
-        """Placeholder for a method that would run the predictive model to update traversability and stuck probability estimates based on the current state of the map. and save stuck event"""
-        pass
+    def refresh_estimation(self, movement_information=None):
+        """
+        Aggiorna le stime di attraversabilità e probabilità di blocco usando
+        l'Inverse Distance Weighting (IDW) nello spazio delle features (texture, color).
+        """
+        known_cells = []
+        unvisited_cells = []
 
+        # 1. Separiamo le celle esplorate fisicamente da quelle solo percepite
+        for coords, cell in self.grid.items():
+            if cell.texture is not None and cell.color is not None:
+                # Se abbiamo la traversabilità reale, il robot ci è passato
+                if cell.real_traversability is not None:
+                    known_cells.append(cell)
+                else:
+                    unvisited_cells.append(cell)
 
+        # Se lo scout non ha ancora attraversato nessuna cella, non possiamo stimare nulla
+        if not known_cells:
+            return
 
+        # 2. Stimiamo i valori per le celle non esplorate
+        for u_cell in unvisited_cells:
+            total_weight = 0.0
+            weighted_trav_sum = 0.0
+            weighted_stuck_sum = 0.0
+            min_dist = float('inf')
+
+            for k_cell in known_cells:
+                # Distanza Euclidea nello spazio (texture, color)
+                # Più texture e colore sono simili, più la distanza si avvicina a 0
+                feature_dist = math.sqrt(
+                    (u_cell.texture - k_cell.texture)**2 + 
+                    (u_cell.color - k_cell.color)**2
+                )
+                
+                # Calcolo del peso (epsilon per evitare divisioni per zero)
+                weight = 1.0 / (feature_dist + 1e-5)
+                
+                # --- Stima Attraversabilità Continua ---
+                weighted_trav_sum += k_cell.real_traversability * weight
+                
+                # --- Stima Eventi di Blocco (Booleani) ---
+                stuck_val = 1.0 if k_cell.is_stuck else 0.0
+                weighted_stuck_sum += stuck_val * weight
+
+                total_weight += weight
+                if feature_dist < min_dist:
+                    min_dist = feature_dist
+
+            # 3. Aggiorniamo le stime del Layer 2 della cella
+            if total_weight > 0:
+                u_cell.traversability_estimate = weighted_trav_sum / total_weight
+                u_cell.stuck_probability_estimate = weighted_stuck_sum / total_weight
+                u_cell.confidence = 1.0 / (1.0 + min_dist)
