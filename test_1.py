@@ -11,150 +11,143 @@ graph models reachable nodes and traversable edges, ensuring that subsequent pat
 algorithms can avoid obstacles and areas with a high stuck probability.
 
 """
-import time
-from src.map_api import MapAPI
-from motion import Scout, Drone, Rover
-from data_management import TerrainMap, build_weighted_graph
+import unittest
+import math
+import networkx as nx
 
-def main():
+# Importiamo le classi e le funzioni dal tuo file
+from data_management import (
+    CellData, 
+    TerrainMap, 
+    get_neighbors_8, 
+    compute_edge_cost, 
+    build_weighted_graph
+)
 
-    print("Loading MapAPI...")
-    csv_path = "src/map_001_seed42.csv"
-    map_api = MapAPI(terrain=csv_path, rng_seed=42)
-    
-    print("Initializing TerrainMap (from data_management.py)...")
-    terrain_map = TerrainMap(width=50, height=50)
-    
-    case = "drone"  #  "scout" or "rover" 
-    start_pos = (2.0, 2.0)
-    target_pos = (45.0, 45.0)
-    
-    print(f"Initializing {case.capitalize()} (from motion.py) at {start_pos}...")
-    if case == "scout":
-        robot = Scout(map_api, "scout_integration_01", start_pos)
-    elif case == "drone":
-        robot = Drone(map_api, "drone_integration_01", start_pos)
-    elif case == "rover":
-        robot = Rover(map_api, "rover_integration_01", start_pos)
-    else:
-        raise ValueError("Invalid case specified")
-    
-    dt = 0.1 
-    
-    print(f"Starting {case.capitalize()} movement towards {target_pos}...")
-    
-    step = 0
-    while True:
-        step += 1
+# Creiamo un Mock per simulare i dati restituiti dal perceive
+class MockTerrainObservation:
+    def __init__(self, x, y, texture, color, slope=0.0, uphill_angle=0.0):
+        self.x = x
+        self.y = y
+        self.features = {
+            "texture": texture,
+            "color": color,
+            "slope": slope,
+            "uphill_angle": uphill_angle
+        }
+
+class TestDataManagement(unittest.TestCase):
+
+    def test_cell_data_initialization_and_setters(self):
+        """Testa se le singole celle salvano correttamente i dati base."""
+        cell = CellData()
+        self.assertIsNone(cell.texture)
         
-        observations = robot.perceive()
+        cell.set_texture(0.7)
+        self.assertEqual(cell.texture, 0.7)
         
-        for obs in observations:
-            cell = terrain_map.get_cell(obs.x, obs.y)
-            
-            cell.texture = obs.features.get("texture", cell.texture)
-            cell.color = obs.features.get("color", cell.color)
-            cell.slope = obs.features.get("slope", cell.slope)
-            cell.uphill_angle = obs.features.get("uphill_angle", cell.uphill_angle)
-            
-            if cell.texture is not None:
-                cell.traversability_estimate = max(0.1, cell.texture)
-                cell.confidence = 0.9
-                
-            cell.observed_by.add(case)
-            cell.visit_count += 1
-            cell.last_updated = step
-            
-        if case == "scout":
-            reached, was_stuck, stuck_pos = robot.step_towards(target_pos[0], target_pos[1], dt)
-            if was_stuck and stuck_pos:
-                stuck_cell = terrain_map.get_cell(stuck_pos[0], stuck_pos[1])
-                stuck_cell.stuck_probability_estimate = 1.0
-                stuck_cell.traversability_estimate = 0.001
-            
-            if reached:
-                print(f"-> Target reached at step {step}!")
-                break
-                
-        elif case == "drone":
-            reached, forced_recharge = robot.step_towards(target_pos[0], target_pos[1], dt)
-            if reached:
-                print(f"-> Target reached at step {step}!")
-                break
-                
-        elif case == "rover":
-            reached, was_stuck = robot.step_towards(target_pos[0], target_pos[1], dt)
-            if was_stuck:
-                stuck_cell = terrain_map.get_cell(robot.x, robot.y)
-                stuck_cell.stuck_probability_estimate = 1.0
-                stuck_cell.traversability_estimate = 0.001
-                print(f"-> Rover experienced a FATAL STUCK event at step {step}. Exploration aborted!")
-                break
-            
-            if reached:
-                print(f"-> Target reached at step {step}!")
-                break
+        # Prova a sovrascrivere (nella tua logica attuale set_texture non sovrascrive se non è None)
+        cell.set_texture(0.9)
+        self.assertEqual(cell.texture, 0.7, "Il setter non dovrebbe sovrascrivere un valore già esistente se non è None.")
 
-    print("\n--- RESULTS ---")
-    print(f"{case.capitalize()} ended at position: ({robot.x:.2f}, {robot.y:.2f})")
-    print(f"TerrainMap has gathered {len(terrain_map.grid)} unique mapped cells.")
-    
-    print("\nBuilding Directed Weighted Graph for Path Planning...")
-    graph = build_weighted_graph(terrain_map)
-    print(f"Graph generated with {graph.number_of_nodes()} reachable nodes and {graph.number_of_edges()} traversable edges.")
-    
-    if graph.number_of_edges() > 0:
-        print("Success! `data_management.py` and `motion.py` are properly integrated and fully usable together.")
-
-    print("\nGenerating visual plots...")
-    import numpy as np
-    import matplotlib.pyplot as plt
-    import networkx as nx
-    
-    grid_view = np.full((terrain_map.height, terrain_map.width), np.nan)
-    for (x, y), cell in terrain_map.grid.items():
-        if 0 <= x < terrain_map.width and 0 <= y < terrain_map.height:
-            if cell.stuck_probability_estimate > 0.5:
-                grid_view[y, x] = -0.1
-            else:
-                grid_view[y, x] = cell.traversability_estimate if cell.traversability_estimate is not None else np.nan                
-    fig, axes = plt.subplots(1, 2, figsize=(14, 7))
-    fig.suptitle("Layered Grid Map Integration & Path Planning Graph")
-    
-    ax1 = axes[0]
-    cmap = plt.cm.viridis.copy()
-    cmap.set_bad(color="lightgrey")
-    cmap.set_under(color="red")
-    im1 = ax1.imshow(grid_view, origin="lower", cmap=cmap, vmin=0, vmax=1.0)
-    fig.colorbar(im1, ax=ax1, fraction=0.046, pad=0.04, label="Traversability / Stuck (Red)")
-    
-    ax1.plot(start_pos[0], start_pos[1], 'go', markersize=10, label="Start")
-    ax1.plot(target_pos[0], target_pos[1], 'r*', markersize=12, label="Target")
-    ax1.plot(robot.x, robot.y, 'cx', markersize=8, label="Final Pos")
-    ax1.set_title("Layered Grid Map: Layer 2 Estimates")
-    ax1.legend()
-    
-    ax2 = axes[1]
-    
-    ax2.imshow(grid_view, origin="lower", cmap=cmap, vmin=0, vmax=1.0, alpha=0.3)
-    
-    pos = {node: (node[0], node[1]) for node in graph.nodes()}
-    if len(pos) > 0:
-        nx.draw(graph, pos, ax=ax2, node_size=10, node_color="blue", alpha=0.6, edge_color="gray", width=0.5)
+    def test_terrain_map_storage(self):
+        """Testa l'inserimento delle osservazioni del robot all'interno della griglia spaziale."""
+        t_map = TerrainMap(50, 50)
+        obs1 = MockTerrainObservation(x=5, y=5, texture=0.2, color=0.3)
+        obs2 = MockTerrainObservation(x=5, y=6, texture=0.4, color=0.5)
         
-    ax2.plot(start_pos[0], start_pos[1], 'go', markersize=10, label="Start")
-    ax2.plot(target_pos[0], target_pos[1], 'r*', markersize=12, label="Target")
-    
-    ax2.set_xlim(-0.5, terrain_map.width - 0.5)
-    ax2.set_ylim(-0.5, terrain_map.height - 0.5)
-    ax2.set_title("Generated NetworkX Edge Connectivity")
-    ax2.legend()
-    
-    plt.tight_layout()
-    try:
-        plt.show()
-    except Exception as e:
-        print(f"Could not show plot interactively: {e}")
+        t_map.store_observation([obs1, obs2])
+        
+        # Verifichiamo che la cella (5,5) esista e abbia i dati giusti
+        cell_5_5 = t_map.get_cell(5, 5)
+        self.assertEqual(cell_5_5.texture, 0.2)
+        self.assertEqual(cell_5_5.color, 0.3)
+        
+        # Verifichiamo che anche (5,6) sia registrata
+        self.assertIn((5, 6), t_map.grid)
 
-if __name__ == "__main__":
-    main()
+    def test_refresh_estimation_idw(self):
+        """Testa la logica predittiva dell'algoritmo Inverse Distance Weighting."""
+        t_map = TerrainMap(50, 50)
+        
+        # 1. Creiamo una cella ESPLORATA e SICURA
+        cell_safe = t_map.get_cell(0, 0)
+        cell_safe.texture = 0.5
+        cell_safe.color = 0.5
+        cell_safe.real_traversability = 0.9 # Molto facile da attraversare
+        cell_safe.is_stuck = False
+        
+        # 2. Creiamo una cella ESPLORATA ma PERICOLOSA
+        cell_danger = t_map.get_cell(10, 10)
+        cell_danger.texture = 0.9
+        cell_danger.color = 0.9
+        cell_danger.real_traversability = 0.1 # Molto difficile
+        cell_danger.is_stuck = True
+        
+        # 3. Creiamo una cella NON ESPLORATA ma visivamente identica a quella SICURA
+        cell_unknown = t_map.get_cell(0, 1)
+        cell_unknown.texture = 0.51  # Molto simile a 0.5
+        cell_unknown.color = 0.51
+        
+        # Avviamo la stima
+        t_map.refresh_estimation()
+        
+        # La stima della cell_unknown dovrebbe avvicinarsi a 0.9, e la confidenza deve essere alta
+        self.assertIsNotNone(cell_unknown.traversability_estimate)
+        self.assertAlmostEqual(cell_unknown.traversability_estimate, 0.9, delta=0.05)
+        self.assertAlmostEqual(cell_unknown.stuck_probability_estimate, 0.0, delta=0.05)
+        self.assertTrue(cell_unknown.confidence > 0)
+
+    def test_get_neighbors_8(self):
+        """Testa che la funzione di utilità restituisca esattamente le 8 celle adiacenti."""
+        neighbors = list(get_neighbors_8(5, 5))
+        self.assertEqual(len(neighbors), 8)
+        self.assertIn((4, 4), neighbors)
+        self.assertIn((6, 5), neighbors)
+        self.assertNotIn((5, 5), neighbors) # Non deve includere se stessa
+
+    def test_compute_edge_cost(self):
+        """Testa la formula di calcolo dei costi di movimento inclusiva di pendenza e penalità."""
+        source = CellData()
+        target = CellData(
+            traversability_estimate=0.5, # base cost = 1 / 0.5 = 2.0
+            confidence=1.0,              # no confidence penalty
+            stuck_probability_estimate=0.1, # no stuck penalty (< 0.5)
+            slope=None
+        )
+        
+        # Test base
+        cost = compute_edge_cost(source, target, direction=(0, 1))
+        self.assertEqual(cost, 2.0)
+        
+        # Test con bassa confidenza (Aggiunge la penalità lambda)
+        target.confidence = 0.0
+        cost_low_conf = compute_edge_cost(source, target, direction=(0, 1))
+        self.assertEqual(cost_low_conf, 4.0) # 2.0 (base) + 2.0 (lambda * (1 - 0))
+
+        # Test con alta probabilità di blocco
+        target.stuck_probability_estimate = 0.9
+        cost_stuck = compute_edge_cost(source, target, direction=(0, 1))
+        self.assertTrue(cost_stuck > 1000.0) # Penalità massima applicata
+
+    def test_build_weighted_graph(self):
+        """Testa la generazione del grafo NetworkX per gli algoritmi A*/Dijkstra."""
+        t_map = TerrainMap(10, 10)
+        
+        # Creiamo due celle vicine
+        t_map.get_cell(0, 0)
+        target_cell = t_map.get_cell(0, 1)
+        target_cell.traversability_estimate = 1.0
+        target_cell.confidence = 1.0
+        
+        # Generiamo il grafo
+        graph = build_weighted_graph(t_map)
+        
+        # Assicuriamoci che esista l'arco e che il peso sia calcolato
+        self.assertTrue(graph.has_edge((0, 0), (0, 1)))
+        
+        edge_weight = graph[(0, 0)][(0, 1)]['weight']
+        self.assertEqual(edge_weight, 1.0) # Costo base con trav=1.0 e conf=1.0 senza pendenza
+
+if __name__ == '__main__':
+    unittest.main()
