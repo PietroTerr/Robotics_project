@@ -81,7 +81,18 @@ class RobotMovementBase:
         
     def perceive(self):
         """Standard perception, can be filtered by subclasses."""
-        return self.map_api.perceive(self.robot_id, (self.x, self.y))
+        feature = {}
+        obs = self.map_api.perceive(self.robot_id, (self.x, self.y))
+        for ob in obs:
+            feature[ob.x, ob.y] = {
+                "texture": ob.features.get("texture"),
+                "color": ob.features.get("color"),
+                "slope": ob.features.get("slope"),
+                "uphill_angle": ob.features.get("uphill_angle"),
+            }
+        return feature
+
+
     def step_towards(self, heading):
         result     = self.map_api.step(
             robot_id=self.robot_id,
@@ -93,7 +104,14 @@ class RobotMovementBase:
         self.x += result.actual_velocity * self.dt * math.cos(heading)
         self.y += result.actual_velocity * self.dt * math.sin(heading)
 
-        return result.is_stuck, result.actual_velocity
+        movement_information= {
+            "heading": heading,
+            "is_stuck": result.is_stuck,
+            "command_velocity": self.speed,
+            "actual_velocity": result.actual_velocity,
+        }
+
+        return movement_information
 
 class Drone(RobotMovementBase):
     """
@@ -133,7 +151,7 @@ class Drone(RobotMovementBase):
         self.y += result.actual_velocity * self.dt * math.sin(heading)
         self.battery_state = max(0.0, self.battery_state - (0.02 * self.dt))  # Drain
 
-        return None, result.actual_velocity
+        return None
 
 class Scout(RobotMovementBase):
     """

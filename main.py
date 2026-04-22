@@ -1,6 +1,6 @@
-from CellData import TerrainMap
 from Governor import Governor
-from motion import Drone, Scout, Rover
+from TerrainMap import TerrainMap
+from motion import Drone, Scout, Rover, RobotMovementBase
 from real_time_plot import RealTimePlot
 from src.map_api import MapAPI
 
@@ -26,43 +26,25 @@ def main():
             drone.perceive()
             break # Reached target
 
+        new_map_information = {}
+
+        # Perceive
+        new_map_information.update(rover.perceive())
+        new_map_information.update(scout.perceive())
+        new_map_information.update(drone.perceive())
 
         # -- Move agents
-        r_is_stuck, r_actual_velocity = rover.step_towards(rover_heading)
-        s_is_stuck, s_actual_velocity = scout.step_towards(scout_heading)
+        new_map_information[rover.x, rover.y].update(rover.step_towards(rover_heading))
+        new_map_information[scout.x, scout.y].update(scout.step_towards(scout_heading))
         drone.step_towards(drone_heading)
 
-        movement_info = {
-            rover: {"position": (rover.x, rover.y),"heading": rover_heading, "is_stuck": r_is_stuck, "actual_velocity": r_actual_velocity},
-            scout: {"position": (scout.x, scout.y), "heading": scout_heading, "is_stuck": s_is_stuck, "actual_velocity": s_actual_velocity},
-        }
-
-
-        # -- Perceive
-        d_obs = drone.perceive()
-        terrain_map.store_observation(d_obs)
-
-        s_obs = scout.perceive()
-        terrain_map.store_observation(s_obs)
-        terrain_map.store_movement_information(movement_info)
-
-        r_obs = rover.perceive()
-        terrain_map.store_observation(r_obs)
-        plotter.record()
-
-        """if i%50==0:
-            plotter.plot_final()
-        i+=1"""
-
-    # After the loop, choose one:
-    plotter.plot_final()     # static final state
+        terrain_map.update_map(new_map_information)
 
 def get_map_api():
     print("Loading MapAPI & Components...")
     csv_path = "src/map_001_seed42.csv"
     map_api = MapAPI(terrain=csv_path, rng_seed=42)
     return map_api
-
 
 if __name__ == "__main__":
         main()
