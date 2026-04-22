@@ -16,8 +16,8 @@ class TerrainMap:
         self.width = width
         self.height = height
         self.grid_size = (self.width, self.height)
-        self.observed_cells = set()
-        self.visited_cells = set()
+        self.observed_cells = set() # cells observed by perceive
+        self.visited_cells = set() # cells visited by scout or rover
         self.terrain_predictor = TerrainPredictor()
 
     def get_cell(self, x: int, y: int) -> CellData:
@@ -46,9 +46,13 @@ class TerrainMap:
 
     def store_movement_information(self, movement_information: dict):
         # --- Update known cells from agent feedback ---
+        new_cells = False
         for agent, info in movement_information.items():
             if isinstance(agent, (Rover, Scout)):
                 cell = self.get_cell(agent.x, agent.y)
+                if cell in self.visited_cells:
+                    continue
+                new_cells = True
                 self.visited_cells.add(cell)
                 self.__store_stuck_information(agent.x, agent.y, info["is_stuck"])
                 # Only compute real_traversability once — it's a fixed terrain property
@@ -59,7 +63,8 @@ class TerrainMap:
                     commanded = info["command_velocity"]
                     new_trav = info["actual_velocity"] / (commanded * slope_f + 1e-9)
                     cell.real_traversability = max(0.0, min(1.0, new_trav))
-        self.terrain_predictor.update_predictor(self.observed_cells, self.visited_cells)
+        if new_cells:
+            self.terrain_predictor.update_predictor(self.observed_cells, self.visited_cells)
 
 
 def _directional_slope_factor(slope: float,
