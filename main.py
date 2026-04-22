@@ -1,4 +1,4 @@
-from data_management import TerrainMap
+from CellData import TerrainMap
 from Governor import Governor
 from motion import Drone, Scout, Rover
 from real_time_plot import RealTimePlot
@@ -33,9 +33,8 @@ def main():
         drone.step_towards(drone_heading)
 
         movement_info = {
-            "rover": {"position": (rover.x, rover.y),"heading": rover_heading, "is_stuck": r_is_stuck, "actual_velocity": r_actual_velocity},
-            "scout": {"position": (scout.x, scout.y), "heading": scout_heading, "is_stuck": s_is_stuck, "actual_velocity": s_actual_velocity},
-            "drone": {"position": (drone.x, drone.y), "heading": drone_heading, },
+            rover: {"position": (rover.x, rover.y),"heading": rover_heading, "is_stuck": r_is_stuck, "actual_velocity": r_actual_velocity},
+            scout: {"position": (scout.x, scout.y), "heading": scout_heading, "is_stuck": s_is_stuck, "actual_velocity": s_actual_velocity},
         }
 
 
@@ -45,7 +44,7 @@ def main():
 
         s_obs = scout.perceive()
         terrain_map.store_observation(s_obs)
-        terrain_map.refresh_estimation(movement_info)
+        terrain_map.store_movement_information(movement_info)
 
         r_obs = rover.perceive()
         terrain_map.store_observation(r_obs)
