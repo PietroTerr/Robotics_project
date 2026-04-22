@@ -295,7 +295,7 @@ def _run_phase(name: str,
 
 # ─── Local Neighbourhood Sweep ────────────────────────────────────────────────
 
-SWEEP_RADIUS         = 8    # cells — radius of the scout-only sweep at goal
+SWEEP_RADIUS         = 8       # cells — radius of scout-only sweep at goal
 SWEEP_MAX_CELL_STEPS = 10_000  # per-cell safety cap for the scout
 
 
@@ -307,47 +307,65 @@ def _explore_goal_neighborhood(drone: Drone,
                                 drone_traj: list | None = None,
                                 scout_traj: list | None = None) -> int:
     """
-    Scout-only sweep of every unexplored cell within `radius` cells (Euclidean)
-    of `focal_point`, visited nearest-first.
+    Scout-only sweep of cells within `radius` of `focal_point` that lack
+    physical traversability data.  The scout's route is ordered by a greedy
+    nearest-neighbour heuristic (start from scout's current position, always
+    go to the closest remaining candidate) to minimise backtracking.
 
-    The drone stays at the focal point and keeps perceiving (wide-area visual
-    coverage) while the scout physically walks to each candidate cell and
-    records real traversability.
+    The drone hovers at focal_point and calls perceive() once per candidate
+    for wide-area visual coverage.
 
     Returns the total number of DT steps consumed.
     """
     print(f"\n  [LOCAL SWEEP] Sweeping {radius}-cell neighbourhood of {focal_point} ...")
 
-    # Build sorted list of cells within radius that need physical validation:
-    # - cells not yet in terrain_map at all (fully unseen), OR
-    # - cells already perceived visually but never physically walked
-    #   (real_traversability=None → IDW would have to guess, possibly badly).
-    candidates = []
+    # ── Collect cells that need physical validation ───────────────────────────
+    # Include cells that are either absent from the grid OR present but never
+    # physically walked (real_traversability=None — only perceived by drone).
+    candidates: list[tuple[int, int]] = []
     for dx in range(-radius, radius + 1):
         for dy in range(-radius, radius + 1):
             cx, cy = focal_point[0] + dx, focal_point[1] + dy
             if 0 <= cx < 50 and 0 <= cy < 50:
-                dist = math.hypot(dx, dy)
-                if dist <= radius:
+                if math.hypot(dx, dy) <= radius:
                     cd = terrain_map.grid.get((cx, cy))
                     if cd is None or cd.real_traversability is None:
-                        candidates.append((dist, cx, cy))
-
-    candidates.sort()   # nearest first
+                        candidates.append((cx, cy))
 
     if not candidates:
         print("  [LOCAL SWEEP] All cells already mapped — nothing to do.")
         return 0
 
-    print(f"  [LOCAL SWEEP] {len(candidates)} unexplored cells to visit.")
-    total_steps = 0
+    # ── Greedy nearest-neighbour tour ─────────────────────────────────────────
+    # Start from the scout's current position; always visit the geometrically
+    # closest remaining candidate next.  This minimises total travel distance
+    # and the number of times the scout re-crosses already-validated cells.
+    remaining = list(candidates)
+    ordered: list[tuple[int, int]] = []
+    cur = (scout.x, scout.y)
+    while remaining:
+        idx = min(range(len(remaining)),
+                  key=lambda i: math.hypot(remaining[i][0] - cur[0],
+                                           remaining[i][1] - cur[1]))
+        nxt = remaining.pop(idx)
+        ordered.append(nxt)
+        cur = (float(nxt[0]), float(nxt[1]))
 
-    for _, cx, cy in candidates:
-        # ── Drone: hover at focal point, keep perceiving (no movement) ──
-        # One perceive call covers the neighbourhood visually.
+    print(f"  [LOCAL SWEEP] {len(ordered)} cells to visit (greedy tour).")
+    total_steps = 0
+    visited_set: set = set()  # track cells already given real_traversability
+
+    for cx, cy in ordered:
+        # Re-check: cell may have been covered as transit by a previous step
+        cd = terrain_map.grid.get((cx, cy))
+        if cd is not None and cd.real_traversability is not None:
+            visited_set.add((cx, cy))
+            continue
+
+        # ── Drone: hovering at focal point, single perceive for visual data ─
         terrain_map.store_observation(drone.perceive())
 
-        # ── Scout: walk to cell, perceive, record real traversability ───
+        # ── Scout: walk to cell along the shortest path ──────────────────────
         s_steps = 0
         while math.hypot(scout.x - cx, scout.y - cy) >= 0.5 \
               and s_steps < SWEEP_MAX_CELL_STEPS:
@@ -358,22 +376,27 @@ def _explore_goal_neighborhood(drone: Drone,
             if scout_traj is not None:
                 scout_traj.append((scout.x, scout.y))
 
+            # Record traversability for every cell the scout passes through
             scx, scy = int(round(scout.x)), int(round(scout.y))
-            cell = terrain_map.get_cell(scx, scy)
-            if cell.real_traversability is None:
-                actual_d   = math.hypot(scout.x - pre_x, scout.y - pre_y)
-                expected_d = scout.speed * DT
-                trav = actual_d / expected_d if expected_d > 1e-9 else 1.0
-                cell.real_traversability = max(0.01, min(1.0, trav))
-            if was_stuck:
-                cell.is_stuck = True
-                cell.real_traversability = min(cell.real_traversability, 0.1)
+            if (scx, scy) not in visited_set:
+                cell = terrain_map.get_cell(scx, scy)
+                if cell.real_traversability is None:
+                    actual_d   = math.hypot(scout.x - pre_x, scout.y - pre_y)
+                    expected_d = scout.speed * DT
+                    trav = actual_d / expected_d if expected_d > 1e-9 else 1.0
+                    cell.real_traversability = max(0.01, min(1.0, trav))
+                if was_stuck:
+                    cell.is_stuck = True
+                    cell.real_traversability = min(cell.real_traversability, 0.1)
+                visited_set.add((scx, scy))
             s_steps += 1
         total_steps += s_steps
+        visited_set.add((cx, cy))
 
     print(f"  [LOCAL SWEEP] Done in {total_steps:,} steps. "
           f"TerrainMap now covers {len(terrain_map.grid)} cells.")
     return total_steps
+
 
 
 # ─── Governor ─────────────────────────────────────────────────────────────────
