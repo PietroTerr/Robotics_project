@@ -91,6 +91,12 @@ class TerrainMap:
         if not known_cells:
             return
 
+        # 1b. Le celle fisicamente percorse dallo scout hanno una misura diretta:
+        #     usiamo quella come stima con confidenza massima (nessun IDW necessario).
+        for k_cell in known_cells:
+            k_cell.traversability_estimate = k_cell.real_traversability
+            k_cell.confidence = 1.0
+
         # 2. Stimiamo i valori per le celle non esplorate
         for u_cell in unvisited_cells:
             total_weight = 0.0

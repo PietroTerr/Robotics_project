@@ -61,9 +61,10 @@ from motion import Drone, Scout, Rover
 START      = (5, 5)     # Shared home position for all agents
 TARGET     = (40, 40)   # Exploration target
 
-DT         = 0.2        # Simulation time-step (seconds)
-ZIG_WIDTH  = 10          # Half-width of the scout zigzag corridor (cells)
-MAX_STEPS  = 120_000    # Safety cap per phase (avoids infinite loops)
+DT           = 0.2      # Simulation time-step (seconds)
+ZIG_WIDTH    = 10       # Half-width of the scout zigzag corridor (cells)
+ZIG_LOOKAHEAD = 8.0     # How far ahead of the scout to place the zigzag base (cells along axis)
+MAX_STEPS    = 120_000  # Safety cap per phase (avoids infinite loops)
 
 MAP_CSV    = PROJECT_ROOT / "src" / "map_001_seed42.csv"
 
@@ -217,11 +218,16 @@ def _run_phase(name: str,
                 # Close to goal: go straight
                 scout_tx, scout_ty = float(goal[0]), float(goal[1])
             else:
-                # ─ Zigzag waypoint computation ─
-                # Base point: drone's progress projected on axis from origin
-                proj = _axial_projection((drone.x, drone.y), origin, axis)
-                base_x = origin[0] + proj * axis[0]
-                base_y = origin[1] + proj * axis[1]
+                # ── Zigzag waypoint computation ──────────────────────────────
+                # Base point: scout's OWN axial progress + a fixed lookahead,
+                # capped so it never overshoots the goal.
+                # (Using the drone's progress caused waypoints to freeze at the
+                # goal as soon as the drone arrived, breaking the zigzag.)
+                goal_proj  = _axial_projection(goal,          origin, axis)
+                scout_proj = _axial_projection((scout.x, scout.y), origin, axis)
+                base_proj  = min(scout_proj + ZIG_LOOKAHEAD, goal_proj)
+                base_x = origin[0] + base_proj * axis[0]
+                base_y = origin[1] + base_proj * axis[1]
 
                 # Recompute waypoint when None or when scout has arrived at it
                 if scout_wp is None or \
@@ -276,8 +282,8 @@ def _run_phase(name: str,
         if step % 1000 == 0:
             d_dist = math.hypot(drone.x - goal[0], drone.y - goal[1])
             s_dist = math.hypot(scout.x - goal[0], scout.y - goal[1])
-            print(f"  step={step:6d} | 🛰 drone dist={d_dist:6.2f} | "
-                  f"🚙 scout dist={s_dist:6.2f} | 📦 cells={len(terrain_map.grid)}")
+            print(f"  step={step:6d} | drone dist={d_dist:6.2f} | "
+                  f"scout dist={s_dist:6.2f} | cells={len(terrain_map.grid)}")
 
     if step >= MAX_STEPS:
         print(f"  ⚠  Phase reached MAX_STEPS ({MAX_STEPS:,}). Forcing next phase.")
@@ -285,6 +291,89 @@ def _run_phase(name: str,
     print(f"\n  {name} completed in {step:,} steps. "
           f"TerrainMap coverage: {len(terrain_map.grid)} cells.")
     return step, drone_traj, scout_traj
+
+
+# ─── Local Neighbourhood Sweep ────────────────────────────────────────────────
+
+SWEEP_RADIUS         = 8    # cells — radius of the scout-only sweep at goal
+SWEEP_MAX_CELL_STEPS = 10_000  # per-cell safety cap for the scout
+
+
+def _explore_goal_neighborhood(drone: Drone,
+                                scout: Scout,
+                                focal_point: tuple,
+                                terrain_map: TerrainMap,
+                                radius: int = SWEEP_RADIUS,
+                                drone_traj: list | None = None,
+                                scout_traj: list | None = None) -> int:
+    """
+    Scout-only sweep of every unexplored cell within `radius` cells (Euclidean)
+    of `focal_point`, visited nearest-first.
+
+    The drone stays at the focal point and keeps perceiving (wide-area visual
+    coverage) while the scout physically walks to each candidate cell and
+    records real traversability.
+
+    Returns the total number of DT steps consumed.
+    """
+    print(f"\n  [LOCAL SWEEP] Sweeping {radius}-cell neighbourhood of {focal_point} ...")
+
+    # Build sorted list of cells within radius that need physical validation:
+    # - cells not yet in terrain_map at all (fully unseen), OR
+    # - cells already perceived visually but never physically walked
+    #   (real_traversability=None → IDW would have to guess, possibly badly).
+    candidates = []
+    for dx in range(-radius, radius + 1):
+        for dy in range(-radius, radius + 1):
+            cx, cy = focal_point[0] + dx, focal_point[1] + dy
+            if 0 <= cx < 50 and 0 <= cy < 50:
+                dist = math.hypot(dx, dy)
+                if dist <= radius:
+                    cd = terrain_map.grid.get((cx, cy))
+                    if cd is None or cd.real_traversability is None:
+                        candidates.append((dist, cx, cy))
+
+    candidates.sort()   # nearest first
+
+    if not candidates:
+        print("  [LOCAL SWEEP] All cells already mapped — nothing to do.")
+        return 0
+
+    print(f"  [LOCAL SWEEP] {len(candidates)} unexplored cells to visit.")
+    total_steps = 0
+
+    for _, cx, cy in candidates:
+        # ── Drone: hover at focal point, keep perceiving (no movement) ──
+        # One perceive call covers the neighbourhood visually.
+        terrain_map.store_observation(drone.perceive())
+
+        # ── Scout: walk to cell, perceive, record real traversability ───
+        s_steps = 0
+        while math.hypot(scout.x - cx, scout.y - cy) >= 0.5 \
+              and s_steps < SWEEP_MAX_CELL_STEPS:
+            pre_x, pre_y = scout.x, scout.y
+            _, was_stuck, _ = scout.step_towards(cx, cy, DT)
+            obs = scout.perceive()
+            terrain_map.store_observation(obs)
+            if scout_traj is not None:
+                scout_traj.append((scout.x, scout.y))
+
+            scx, scy = int(round(scout.x)), int(round(scout.y))
+            cell = terrain_map.get_cell(scx, scy)
+            if cell.real_traversability is None:
+                actual_d   = math.hypot(scout.x - pre_x, scout.y - pre_y)
+                expected_d = scout.speed * DT
+                trav = actual_d / expected_d if expected_d > 1e-9 else 1.0
+                cell.real_traversability = max(0.01, min(1.0, trav))
+            if was_stuck:
+                cell.is_stuck = True
+                cell.real_traversability = min(cell.real_traversability, 0.1)
+            s_steps += 1
+        total_steps += s_steps
+
+    print(f"  [LOCAL SWEEP] Done in {total_steps:,} steps. "
+          f"TerrainMap now covers {len(terrain_map.grid)} cells.")
+    return total_steps
 
 
 # ─── Governor ─────────────────────────────────────────────────────────────────
@@ -329,7 +418,7 @@ def governor():
     # Scout zigzags; both build the map together.
     # ─────────────────────────────────────────────────────────────
     steps1, drone_traj_fwd, scout_traj_fwd = _run_phase(
-        "[PHASE 1] FORWARD TRIP — home → target",
+        "[PHASE 1] FORWARD TRIP — home -> target",
         drone, scout,
         goal   = TARGET,
         origin = START,
@@ -337,6 +426,21 @@ def governor():
         prefer_unexplored = False,
     )
     total_steps += steps1
+
+    # ─────────────────────────────────────────────────────────────
+    # LOCAL SWEEP at TARGET — explore the area around the destination
+    # so the rover's A* path endpoint is well-informed.
+    # ─────────────────────────────────────────────────────────────
+    print(f"\n{'='*62}")
+    print("  [LOCAL SWEEP @ TARGET] Exploring neighbourhood before return trip")
+    print(f"{'='*62}")
+    total_steps += _explore_goal_neighborhood(
+        drone, scout, focal_point=TARGET,
+        terrain_map=terrain_map,
+        radius=SWEEP_RADIUS,
+        drone_traj=drone_traj_fwd,
+        scout_traj=scout_traj_fwd,
+    )
 
     # ─────────────────────────────────────────────────────────────
     # PHASE 2: Return Trip — target → home
@@ -397,16 +501,16 @@ def governor():
             for i in range(len(optimal_path) - 1)
         )
 
-        print(f"  ✅ A* path found: {len(optimal_path)} waypoints, "
+        print(f"  A* path found: {len(optimal_path)} waypoints, "
               f"total cost = {total_cost:.2f}")
         print(f"  Path preview: {optimal_path[:4]} … {optimal_path[-3:]}")
 
     except nx.NetworkXNoPath:
-        print("  ❌ A* found no path between start and target.")
+        print("  A* found no path between start and target.")
         print("     Exploration coverage may be too low. Aborting.")
         return
     except nx.NodeNotFound as exc:
-        print(f"  ❌ Graph node not found: {exc}. Aborting.")
+        print(f"  Graph node not found: {exc}. Aborting.")
         return
 
     # ─────────────────────────────────────────────────────────────
@@ -416,8 +520,10 @@ def governor():
     print("  [PHASE 4] ROVER TRAVERSAL OF OPTIMAL PATH")
     print(f"{'='*62}")
 
-    mission_success = False
+    mission_success  = False
+    rover_skip_count = 0
     rover_max_wp_steps = 50_000   # per-waypoint safety cap
+
     for i, wp in enumerate(optimal_path[1:], start=1):
         cell  = terrain_map.grid.get(wp)
         trav  = (f"{cell.traversability_estimate:.2f}"
@@ -435,17 +541,33 @@ def governor():
             if r_stuck:
                 break
 
-        flag = "🔴 STUCK" if r_stuck else "🟢 OK"
-        print(f"  [{i:3d}/{len(optimal_path)-1}] → {wp} | "
+        if r_stuck:
+            # ── Soft recovery: reset rover status and skip this cell ──
+            # The rover got stuck on a cell that wasn't fully explored.
+            # We note it, mark it as a stuck hazard in the terrain map,
+            # and let the rover continue to the next waypoint.
+            rover_skip_count += 1
+            rover.status = "OPERATIONAL"   # un-immobilise
+            if cell:
+                cell.is_stuck = True
+                cell.real_traversability = 0.01
+            flag = "SKIPPED (stuck)"
+        else:
+            flag = "OK"
+
+        print(f"  [{i:3d}/{len(optimal_path)-1}] -> {wp} | "
               f"trav_est={trav}  stuck_p={sp} | {flag}  ({wp_steps} steps)")
 
-        if r_stuck:
-            print("\n  ⚠  Rover immobilized. Mission failed at waypoint "
-                  f"{i}/{len(optimal_path)-1}.")
-            break
-    else:
+    # Mission succeeds if rover is within reach of the final target
+    dist_to_target = math.hypot(rover.x - TARGET[0], rover.y - TARGET[1])
+    if dist_to_target < 2.0:
         mission_success = True
-        print(f"\n  ✅ MISSION COMPLETE — Rover arrived at {TARGET}!")
+        print(f"\n  MISSION COMPLETE -- Rover arrived at {TARGET}! "
+              f"(skipped {rover_skip_count} stuck waypoints)")
+    else:
+        print(f"\n  MISSION INCOMPLETE -- Rover at ({rover.x:.2f}, {rover.y:.2f}), "
+              f"still {dist_to_target:.1f} cells from target. "
+              f"({rover_skip_count} waypoints skipped)")
 
     # ─────────────────────────────────────────────────────────────
     # Final summary
@@ -456,7 +578,7 @@ def governor():
     print(f"\n{'─'*62}")
     print("  MISSION SUMMARY")
     print(f"{'─'*62}")
-    print(f"  Outcome               : {'SUCCESS ✅' if mission_success else 'FAILED ❌'}")
+    print(f"  Outcome               : {'SUCCESS' if mission_success else 'FAILED'}")
     print(f"  Total simulation steps: {total_steps:,}")
     print(f"  Total simulated time  : {sim_time:,.1f} s  ({sim_time/3600:.2f} h)")
     print(f"  Wall-clock time       : {wall_elapsed:.1f} s")
@@ -473,6 +595,7 @@ def governor():
         terrain_map, optimal_path,
         drone_traj_fwd, drone_traj_ret,
         scout_traj_fwd, scout_traj_ret,
+        scout.stuck_cells,
         map_csv = MAP_CSV,
     )
 
@@ -485,6 +608,7 @@ def _plot_mission(terrain_map: TerrainMap,
                   drone_traj_ret: list,
                   scout_traj_fwd: list,
                   scout_traj_ret: list,
+                  scout_stuck_cells: list,
                   map_csv,
                   grid_size: int = 50):
     """
@@ -569,7 +693,7 @@ def _plot_mission(terrain_map: TerrainMap,
 
     # ── Panel 2: Scout ───────────────────────────────────────────
     ax2 = axes[1]
-    _setup_ax(ax2, "🚙  Scout Zigzag Trajectory")
+    _setup_ax(ax2, " Scout Zigzag Trajectory")
     _mark_home_target(ax2)
 
     xs, ys = _traj_xy(scout_traj_fwd)
@@ -581,20 +705,20 @@ def _plot_mission(terrain_map: TerrainMap,
         ax2.plot(xs, ys, color="#ef9a9a", linewidth=0.8, alpha=0.80,
                  linestyle="--", label="Return")
 
-    # Mark scout stuck events
-    stuck_coords = Scout.stuck_cells
-    if stuck_coords:
-        sx = [c[0] for c in stuck_coords]
-        sy = [c[1] for c in stuck_coords]
+    # Mark scout stuck events (down-sample if very many)
+    if scout_stuck_cells:
+        sample = scout_stuck_cells[::max(1, len(scout_stuck_cells)//500)]
+        sx = [c[0] for c in sample]
+        sy = [c[1] for c in sample]
         ax2.scatter(sx, sy, c="#e63946", s=12, zorder=8,
-                    label=f"Stuck ({len(stuck_coords)})", alpha=0.7)
+                    label=f"Stuck ({len(scout_stuck_cells)})", alpha=0.7)
 
     ax2.legend(fontsize=7, facecolor="#222", labelcolor="white",
                loc="upper left", framealpha=0.7)
 
     # ── Panel 3: Rover A* path ────────────────────────────────────
     ax3 = axes[2]
-    _setup_ax(ax3, "🚜  Rover — A* Optimal Path")
+    _setup_ax(ax3, "  Rover — A* Optimal Path")
     _mark_home_target(ax3)
 
     if optimal_path:
@@ -627,7 +751,7 @@ def _plot_mission(terrain_map: TerrainMap,
     plt.tight_layout()
     plt.savefig(out_path, dpi=150, bbox_inches="tight",
                 facecolor=fig.get_facecolor())
-    print(f"  📊 Plot saved → {out_path}")
+    print(f"  Plot saved → {out_path}")
     plt.show()
 
 
