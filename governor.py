@@ -265,12 +265,12 @@ def _run_phase(name: str,
                     trav = actual_dist / expected_dist
                 else:
                     trav = 1.0
-                cell.real_traversability = max(0.01, min(1.0, trav))
+                cell.set_real_traversability(max(0.01, min(1.0, trav)))
 
             if was_stuck:
-                cell.is_stuck = True
+                cell.set_is_stuck(True)
                 # Override with a low traversability on explicit stuck events
-                cell.real_traversability = min(cell.real_traversability, 0.1)
+                cell.set_real_traversability(min(cell.real_traversability, 0.1))
 
             if math.hypot(scout.x - goal[0], scout.y - goal[1]) < 1.5:
                 scout_done = True
@@ -384,10 +384,10 @@ def _explore_goal_neighborhood(drone: Drone,
                     actual_d   = math.hypot(scout.x - pre_x, scout.y - pre_y)
                     expected_d = scout.speed * DT
                     trav = actual_d / expected_d if expected_d > 1e-9 else 1.0
-                    cell.real_traversability = max(0.01, min(1.0, trav))
+                    cell.set_real_traversability(max(0.01, min(1.0, trav)))
                 if was_stuck:
-                    cell.is_stuck = True
-                    cell.real_traversability = min(cell.real_traversability, 0.1)
+                    cell.set_is_stuck(True)
+                    cell.set_real_traversability(min(cell.real_traversability, 0.1))
                 visited_set.add((scx, scy))
             s_steps += 1
         total_steps += s_steps
@@ -486,12 +486,51 @@ def governor():
     print(f"\n{'='*62}")
     print("  [PHASE 3] GRAPH CONSTRUCTION + A* PATH PLANNING")
     print(f"{'='*62}")
-    print(f"  Running IDW estimation over {len(terrain_map.grid)} cells …")
+    print(f"  Training GP model on {len([c for c in terrain_map.grid.values() if c.is_visited])} visited cells "
+          f"(out of {len(terrain_map.grid)} total observed) …")
 
     terrain_map.refresh_estimation()
 
+    # --- TerrainPredictor Evaluator Report ---
+    visited_for_eval = [c for c in terrain_map.grid.values() if c.is_visited]
+    if terrain_map.terrain_predictor._model_fitted and len(visited_for_eval) >= 5:
+        from TerrainPredictorEvaluator import TerrainPredictorEvaluator
+        print("\n  [EVALUATION] Running TerrainPredictor report on held-out visited cells...")
+        evaluator = TerrainPredictorEvaluator(terrain_map.terrain_predictor, visited_for_eval)
+        report = evaluator.full_report(k_folds=min(5, len(visited_for_eval)))
+        print(report.summary())
+        # evaluator.plot_diagnostics()  # decomment to show ML diagnostic plots
+    else:
+        print(f"  [EVALUATION] Skipped: model_fitted={terrain_map.terrain_predictor._model_fitted}, "
+              f"visited={len(visited_for_eval)} cells.")
+
     G = build_weighted_graph(terrain_map)
     print(f"  Graph: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges.")
+
+    # ── Diagnostic: terrain state near target ─────────────────────────────
+    print(f"\n  [DIAG] Cell state in 5-cell radius around target {TARGET}:")
+    print(f"  {'Cell':12s} {'visited':8s} {'is_stuck':8s} {'real_trav':10s} {'trav_est':10s} {'stuck_p':8s}")
+    print(f"  {'-'*60}")
+    stuck_near_target = 0
+    for dr in range(-5, 6):
+        for dc in range(-5, 6):
+            cx, cy = TARGET[0] + dr, TARGET[1] + dc
+            if not (0 <= cx < 50 and 0 <= cy < 50):
+                continue
+            cell = terrain_map.grid.get((cx, cy))
+            if cell is None:
+                continue
+            is_s  = cell.is_stuck or False
+            r_t   = f"{cell.real_traversability:.2f}" if cell.real_traversability is not None else " ---"
+            t_e   = f"{cell.traversability_estimate:.2f}" if cell.traversability_estimate is not None else " ---"
+            sp    = f"{cell.stuck_probability_estimate:.2f}"
+            vis   = "YES" if cell.is_visited else "no"
+            flag  = " ← STUCK" if is_s else ""
+            if is_s:
+                stuck_near_target += 1
+            print(f"  ({cx:2d},{cy:2d})      {vis:8s} {str(is_s):8s} {r_t:10s} {t_e:10s} {sp:8s}{flag}")
+    print(f"  [DIAG] Total stuck-flagged cells near target: {stuck_near_target}")
+    print()
 
     rover_start = (int(round(rover.x)), int(round(rover.y)))
     rover_goal  = TARGET
@@ -546,13 +585,19 @@ def governor():
     mission_success  = False
     rover_skip_count = 0
     rover_max_wp_steps = 50_000   # per-waypoint safety cap
+    MAX_REPLANS = 5               # safety cap on A* replans
 
-    for i, wp in enumerate(optimal_path[1:], start=1):
-        cell  = terrain_map.grid.get(wp)
-        trav  = (f"{cell.traversability_estimate:.2f}"
-                 if cell and cell.traversability_estimate is not None else "N/A")
-        sp    = (f"{cell.stuck_probability_estimate:.2f}"
-                 if cell else "N/A")
+    waypoints = list(optimal_path[1:])  # mutable list so we can replace it on re-plan
+    i = 0
+    replan_count = 0
+
+    while i < len(waypoints):
+        wp   = waypoints[i]
+        cell = terrain_map.grid.get(wp)
+        trav = (f"{cell.traversability_estimate:.2f}"
+                if cell and cell.traversability_estimate is not None else "N/A")
+        sp   = (f"{cell.stuck_probability_estimate:.2f}"
+                if cell else "N/A")
 
         # Drive the rover in a tight loop until it reaches this waypoint
         wp_steps = 0
@@ -564,33 +609,58 @@ def governor():
             if r_stuck:
                 break
 
+        label_i = i + 1
+        label_n = len(waypoints)
+
         if r_stuck:
-            # ── Soft recovery: reset rover status and skip this cell ──
-            # The rover got stuck on a cell that wasn't fully explored.
-            # We note it, mark it as a stuck hazard in the terrain map,
-            # and let the rover continue to the next waypoint.
             rover_skip_count += 1
             rover.status = "OPERATIONAL"   # un-immobilise
+
+            # Mark the stuck cell as a hard obstacle and flag it in the terrain map
             if cell:
-                cell.is_stuck = True
-                cell.real_traversability = 0.01
-            flag = "SKIPPED (stuck)"
+                cell.set_is_stuck(True)
+                cell.set_real_traversability(0.01)
+
+            flag = "STUCK — replanning …" if replan_count < MAX_REPLANS else "STUCK (skipped)"
+            print(f"  [{label_i:3d}/{label_n}] -> {wp} | "
+                  f"trav_est={trav}  stuck_p={sp} | {flag}  ({wp_steps} steps)")
+
+            # ── Dynamic re-planning ─────────────────────────────────────────
+            if replan_count < MAX_REPLANS:
+                replan_count += 1
+                rover_now = (int(round(rover.x)), int(round(rover.y)))
+                # Rebuild the graph with the newly discovered stuck cell blocked
+                G_new = build_weighted_graph(terrain_map)
+                try:
+                    new_path = nx.astar_path(
+                        G_new, rover_now, rover_goal,
+                        heuristic=lambda a, b: math.hypot(a[0]-b[0], a[1]-b[1]),
+                        weight="weight",
+                    )
+                    print(f"         Re-plan #{replan_count}: new route has "
+                          f"{len(new_path)} waypoints from {rover_now}.")
+                    waypoints = list(new_path[1:])
+                    i = 0          # restart iteration on new waypoint list
+                    continue
+                except (nx.NetworkXNoPath, nx.NodeNotFound):
+                    print(f"         Re-plan #{replan_count}: no alternative path found — skipping waypoint.")
         else:
             flag = "OK"
+            print(f"  [{label_i:3d}/{label_n}] -> {wp} | "
+                  f"trav_est={trav}  stuck_p={sp} | {flag}  ({wp_steps} steps)")
 
-        print(f"  [{i:3d}/{len(optimal_path)-1}] -> {wp} | "
-              f"trav_est={trav}  stuck_p={sp} | {flag}  ({wp_steps} steps)")
+        i += 1
 
     # Mission succeeds if rover is within reach of the final target
     dist_to_target = math.hypot(rover.x - TARGET[0], rover.y - TARGET[1])
     if dist_to_target < 2.0:
         mission_success = True
         print(f"\n  MISSION COMPLETE -- Rover arrived at {TARGET}! "
-              f"(skipped {rover_skip_count} stuck waypoints)")
+              f"(skipped {rover_skip_count} stuck waypoints, {replan_count} replans)")
     else:
         print(f"\n  MISSION INCOMPLETE -- Rover at ({rover.x:.2f}, {rover.y:.2f}), "
               f"still {dist_to_target:.1f} cells from target. "
-              f"({rover_skip_count} waypoints skipped)")
+              f"({rover_skip_count} stuck events, {replan_count} replans)")
 
     # ─────────────────────────────────────────────────────────────
     # Final summary
