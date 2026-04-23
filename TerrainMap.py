@@ -4,6 +4,7 @@ import math
 
 from CellData import CellData
 from TerrainPredictor import TerrainPredictor
+from TerrainGraph import TerrainGraph
 
 
 class TerrainMap:
@@ -21,6 +22,7 @@ class TerrainMap:
         self.height = height
         self.grid_size = (self.width, self.height)
         self.terrain_predictor = TerrainPredictor()
+        self.terrain_graph = TerrainGraph()
 
     # ── Cell access ───────────────────────────────────────────────────────────
 
@@ -45,13 +47,28 @@ class TerrainMap:
         new_observation = self._store_observation(observations)
         new_visited = self._store_movement_information(movement)
 
-        if new_visited: #if new visited cell train the model again
+        visited_cell = self.get_visited_cells()
+        observed_cell = self.get_observed_cells()
+        if new_visited:
+            # New ground truth: re-fit both GP models
             self.terrain_predictor.update_predictor_model(
-                self.get_observed_cells(),
-                self.get_visited_cells(),
+                observed_cell,
+                visited_cell,
             )
-        elif new_observation: # if just new observation wwe just compute the estimation
-            self.terrain_predictor.update_prediction(self.get_observed_cells())
+            # Update graph for every newly visited or stuck cell
+            for cell in visited_cell:
+                if cell.is_stuck:
+                    self.terrain_graph.remove_cell(cell.x, cell.y)
+                else:
+                    self.terrain_graph.update_cell(cell)
+
+        elif new_observation:
+            # New observations only: refresh GP estimates
+            self.terrain_predictor.update_prediction(observed_cell)
+            # Add newly observed cells to the observed graph
+            for cell in observed_cell:
+                self.terrain_graph.add_cell(cell)
+
 
 
     def _store_observation(self, obs) -> bool:
@@ -59,17 +76,12 @@ class TerrainMap:
             Record sensor observations for a batch of cells.
             """
 
-            # Build a set of already-observed coords for O(1) membership tests.
-            already_observed: set[tuple[int, int]] = {
-                (c.x, c.y) for c in self.get_observed_cells()
-            }
-
             new_observations = False
             for (x,y),info in obs.items():
                 coords = (int(x), int(y))
-                if coords in already_observed:
-                    continue
                 cell = self.get_cell(coords[0], coords[1])
+                if self.grid.get(coords).is_observed:
+                    continue
                 cell.set_texture(info["texture"])
                 cell.set_color(info["color"])
                 cell.set_slope(info["slope"])
@@ -91,11 +103,16 @@ class TerrainMap:
         new_cells = False
 
         for (x, y), info in movement_information.items():
+
             coords = (int(x), int(y))
             if coords in visited_set:
                 continue
 
-            cell = self.get_cell(coords[0], coords[1])
+            # look for visited cells
+            if "heading" not in info:
+                continue
+
+            cell = self.get_cell(x, y)
             cell.set_is_stuck(info["is_stuck"])
 
             # real_traversability is a fixed terrain property — compute once.
@@ -110,6 +127,11 @@ class TerrainMap:
                 cell.set_real_traversability(max(0.0, min(1.0, raw_trav)))
             new_cells = True
         return new_cells
+
+    def get_grid_snapshot(self) -> dict[tuple[int, int], CellData]:
+        """Return a copy of the current grid state for plotting."""
+        return {coords: cell for coords, cell in self.grid.items()}
+
 # ── Module-level utilities ────────────────────────────────────────────────────
 
 def _directional_slope_factor(

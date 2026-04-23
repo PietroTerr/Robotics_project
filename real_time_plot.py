@@ -1,119 +1,126 @@
+import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib import pyplot as plt, animation
+from matplotlib.collections import LineCollection
+import matplotlib.colors as mcolors
 
 
-class RealTimePlot:
-    def __init__(self, terrain_map, agents):
-        self.terrain_map = terrain_map
-        self.agents = agents
-        self.agents_path = {agent: [(agent.x, agent.y)] for agent in self.agents}
-        self.grid_snapshots = []  # Store grid state at each step
-        self.stuck_history = []   # Store stuck cells at each step
+class MapPlotter:
+    def __init__(self, grid_size: int = 50):
+        self.grid_size = grid_size
 
-    def record(self):
-        """Call this inside your while loop instead of plot()."""
-        # Record agent positions
-        for agent in self.agents:
-            self.agents_path[agent].append((agent.x, agent.y))
+        plt.ion()  # Interactive mode
+        self.fig, self.ax = plt.subplots(figsize=(8, 8))
+        self.ax.set_xlim(-0.5, grid_size - 0.5)
+        self.ax.set_ylim(-0.5, grid_size - 0.5)
+        self.ax.set_title("Robot Exploration Map")
+        self.ax.set_aspect('equal')
 
-        # Record grid snapshot
-        self.grid_snapshots.append(self.__prepare_grid_view())
-
-        # Record stuck cells
-        stuck = [(x, y) for (x, y), cell in self.terrain_map.grid.items()
-                 if getattr(cell, 'is_stuck', False)]
-        self.stuck_history.append(stuck)
-
-    def __prepare_grid_view(self):
-        grid_view = np.full((self.terrain_map.height, self.terrain_map.width), np.nan)
-        for (x, y), cell in self.terrain_map.grid.items():
-            if cell.traversability_estimate is not None:
-                grid_view[y, x] = cell.traversability_estimate
-        return grid_view
-
-    def plot_final(self):
-        """Call this once after the while loop ends."""
-        fig, ax = plt.subplots(figsize=(10, 10))
-        ax.set_title("Exploration Map")
-
-        cmap = plt.cm.viridis.copy()
-        cmap.set_bad(color="lightgrey")
-
-        # Show the final grid state
-        img = ax.imshow(
-            self.grid_snapshots[-1], origin="lower",
-            cmap=cmap, vmin=0.0, vmax=1.0
+        # Grid Background (Gray default)
+        self.map_rgb = np.full((grid_size, grid_size, 3), 0.5)
+        self.img = self.ax.imshow(
+            self.map_rgb,
+            origin='lower',
+            extent=[-0.5, grid_size - 0.5, -0.5, grid_size - 0.5],
+            interpolation='nearest'
         )
-        fig.colorbar(img, ax=ax, shrink=0.8, label="Traversability Estimate")
 
-        # Plot full paths
-        colors = plt.cm.tab10(np.linspace(0, 1, len(self.agents)))
-        for i, agent in enumerate(self.agents):
-            path = np.array(self.agents_path[agent])
-            ax.plot(path[:, 0], path[:, 1], color=colors[i],
-                    linewidth=1.5, label=f"{agent.__class__.__name__} Path")
-            # Mark start and end
-            ax.scatter(*path[0],  marker='o', color=colors[i], s=100, zorder=5)
-            ax.scatter(*path[-1], marker='*', color=colors[i], s=200, zorder=5)
+        # 'X' Marks: Only > 0.5 probability, Orange to Red
+        self.stuck_cmap = mcolors.LinearSegmentedColormap.from_list("OrRd", ["orange", "red"])
+        self.scatter = self.ax.scatter([], [], marker='x', s=40, c=[], cmap=self.stuck_cmap, vmin=0.5, vmax=1.0)
 
-        # Plot all stuck cells (deduplicated)
-        all_stuck = list({pt for step in self.stuck_history for pt in step})
-        if all_stuck:
-            sx, sy = zip(*all_stuck)
-            ax.scatter(sx, sy, c='red', marker='X', s=100, label='Stuck Cell', zorder=4)
+        self.frontier_lines = LineCollection([], colors='red', linewidths=2)
+        self.ax.add_collection(self.frontier_lines)
 
-        ax.set_xlim(-0.5, self.terrain_map.width - 0.5)
-        ax.set_ylim(-0.5, self.terrain_map.height - 0.5)
-        ax.legend(loc='upper right')
-        plt.show()
+        self.agent_colors = ['cyan', 'magenta', 'yellow']
+        self.agent_names = ['rover', 'scout', 'drone']
 
-    def plot_animated(self):
-        """Optional: replay the recorded run as an animation after the loop."""
-        fig, ax = plt.subplots(figsize=(10, 10))
-        ax.set_title("Exploration Replay")
+        # Dictionaries to track lines and current-position markers
+        self.agent_lines = {}
+        self.agent_heads = {}  # Fix 14: New dictionary for current positions
+        self.agent_history = {}
 
-        cmap = plt.cm.viridis.copy()
-        cmap.set_bad(color="lightgrey")
+        # Traversability Colormap: Red (0.0) -> Green (1.0)
+        self.trav_cmap = mcolors.LinearSegmentedColormap.from_list("RdGr", ["red", "green"])
 
-        img = ax.imshow(self.grid_snapshots[0], origin="lower",
-                        cmap=cmap, vmin=0.0, vmax=1.0)
-        fig.colorbar(img, ax=ax, shrink=0.8, label="Traversability Estimate")
+    def update(self, cells_dict: dict, agents_list: list):
+        scatter_x, scatter_y, scatter_c = [], [], []
+        visited_cells, observed_cells = set(), set()
 
-        colors = plt.cm.tab10(np.linspace(0, 1, len(self.agents)))
-        path_lines = {}
-        for i, agent in enumerate(self.agents):
-            line, = ax.plot([], [], color=colors[i], linewidth=1.5,
-                            label=f"{agent.__class__.__name__} Path")
-            path_lines[agent] = line
+        # 1. Update Grid Cells & Scatter
+        for (x, y), cell in cells_dict.items():
+            if not (0 <= x < self.grid_size and 0 <= y < self.grid_size):
+                continue
 
-        initial_positions = np.array([self.agents_path[agent][0] for agent in self.agents])
-        robot_scatter = ax.scatter(initial_positions[:, 0], initial_positions[:, 1],
-                                   c=colors, s=80, edgecolors='black', zorder=5)
-        stuck_scatter = ax.scatter([], [], c='red', marker='X', s=100,
-                                   label='Stuck Cell', zorder=4)
+            if cell.is_visited:
+                visited_cells.add((x, y))
+                if cell.is_stuck:
+                    self.map_rgb[y, x] = [0.0, 0.0, 0.0]  # Black
+                else:
+                    trav = cell.real_traversability if cell.real_traversability is not None else 0.5
+                    self.map_rgb[y, x] = self.trav_cmap(trav)[:3]
 
-        ax.set_xlim(-0.5, self.terrain_map.width - 0.5)
-        ax.set_ylim(-0.5, self.terrain_map.height - 0.5)
-        ax.legend(loc='upper right')
+            elif cell.is_observed:
+                observed_cells.add((x, y))
+                est_trav = cell.traversability_estimate if cell.traversability_estimate is not None else 0.5
+                self.map_rgb[y, x] = self.trav_cmap(est_trav)[:3]
 
-        def update(frame):
-            img.set_data(self.grid_snapshots[frame])
-
-            positions = []
-            for agent in self.agents:
-                path = np.array(self.agents_path[agent][:frame + 1])
-                path_lines[agent].set_data(path[:, 0], path[:, 1])
-                positions.append(self.agents_path[agent][frame])
-            robot_scatter.set_offsets(np.array(positions))
-
-            stuck = self.stuck_history[frame]
-            if stuck:
-                stuck_scatter.set_offsets(np.array(stuck))
+                # Plot X ONLY if probability > 50%
+                if cell.stuck_probability_estimate > 0.5:
+                    scatter_x.append(x)
+                    scatter_y.append(y)
+                    scatter_c.append(cell.stuck_probability_estimate)
             else:
-                stuck_scatter.set_offsets(np.empty((0, 2)))
+                self.map_rgb[y, x] = [0.5, 0.5, 0.5]  # Unobserved is Gray
 
-            return [img, robot_scatter, stuck_scatter] + list(path_lines.values())
+        self.img.set_data(self.map_rgb)
 
-        ani = animation.FuncAnimation(fig, update, frames=len(self.grid_snapshots),
-                                      interval=100, blit=True, repeat=False)
-        plt.show()
+        if scatter_x:
+            self.scatter.set_offsets(np.c_[scatter_x, scatter_y])
+            self.scatter.set_array(np.array(scatter_c))
+        else:
+            self.scatter.set_offsets(np.empty((0, 2)))
+            # Fix 13: Reset the color array to prevent colormap dimension mismatches
+            self.scatter.set_array(np.array([]))
+
+            # 2. Frontier Lines
+        segments = []
+        directions = [(1, 0, 0.5, -0.5, 0.5, 0.5), (-1, 0, -0.5, -0.5, -0.5, 0.5),
+                      (0, 1, -0.5, 0.5, 0.5, 0.5), (0, -1, -0.5, -0.5, 0.5, -0.5)]
+
+        for vx, vy in visited_cells:
+            for dx, dy, x1, y1, x2, y2 in directions:
+                nx, ny = vx + dx, vy + dy
+                if (nx, ny) in observed_cells and (nx, ny) not in visited_cells:
+                    segments.append([(vx + x1, vy + y1), (vx + x2, vy + y2)])
+        self.frontier_lines.set_segments(segments)
+
+        # 3. Agent Paths and Heads
+        for i, (ax_pos, ay_pos) in enumerate(agents_list):
+            agent_id = self.agent_names[i]
+            color = self.agent_colors[i]
+
+            if agent_id not in self.agent_lines:
+                # Initialize the path line
+                line, = self.ax.plot([], [], color=color, linewidth=2, label=agent_id)
+                self.agent_lines[agent_id] = line
+
+                # Fix 14: Initialize the current position marker (a solid dot with a white edge)
+                head, = self.ax.plot([], [], color=color, marker='o', markersize=8, markeredgecolor='white')
+                self.agent_heads[agent_id] = head
+
+                self.agent_history[agent_id] = {'x': [], 'y': []}
+                self.ax.legend(loc='upper right', fontsize='small')
+
+            # Update history line
+            self.agent_history[agent_id]['x'].append(ax_pos)
+            self.agent_history[agent_id]['y'].append(ay_pos)
+            self.agent_lines[agent_id].set_data(
+                self.agent_history[agent_id]['x'], self.agent_history[agent_id]['y']
+            )
+
+            # Fix 14: Update current position marker
+            self.agent_heads[agent_id].set_data([ax_pos], [ay_pos])
+
+        # Fix 12: Explicitly flag the canvas for a redraw and flush GUI events
+        self.fig.canvas.draw_idle()
+        self.fig.canvas.flush_events()

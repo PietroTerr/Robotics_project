@@ -71,7 +71,7 @@ class TerrainPredictor:
         )
         self.gpr = GaussianProcessRegressor(
             kernel=kernel,
-            n_restarts_optimizer=5,
+            n_restarts_optimizer=0,
             normalize_y=True,
         )
         self.gpc = GaussianProcessClassifier(

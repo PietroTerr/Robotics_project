@@ -139,7 +139,7 @@ class Drone(RobotMovementBase):
             self.map_api.step(self.robot_id, (self.x, self.y), 0.0, heading)
 
             self.battery_state = min(1.0, self.battery_state + (0.002 * self.dt))  # Recharge at 0.002 per second of recharge time
-            return (self.x, self.y), self.battery_state
+            return {"battery_state": self.battery_state}
         result = self.map_api.step(
             robot_id=self.robot_id,
             position=(self.x, self.y),
@@ -156,7 +156,7 @@ class Drone(RobotMovementBase):
             "command_velocity": self.speed,
             "actual_velocity": result.actual_velocity,
         }
-        return movement_information
+        return {"battery_state": self.battery_state}
 
 class Scout(RobotMovementBase):
     """
