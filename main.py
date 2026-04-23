@@ -12,20 +12,19 @@ def simulation(data_queue):
 
     map_api = get_map_api()
     start_pos = (5,5)
-
+    target = (5,10)
     drone = Drone(map_api, "drone_01", start_pos)
     scout = Scout(map_api, "scout_01", start_pos)
     rover = Rover(map_api, "rover_01", start_pos)
 
     terrain_map = TerrainMap()
-    governor = Governor(terrain_map,rover,scout,drone)
+    governor = Governor(terrain_map,rover,scout,drone,target)
 
     while True:
         # -- Get heading for each agent
         (rover_heading, scout_heading, drone_heading) = governor.get_heading()
         if rover_heading is None:
             data_queue.put(None)  # Signal: simulation done
-            print("Simulation Complete.")
             return
 
         observations = {}
