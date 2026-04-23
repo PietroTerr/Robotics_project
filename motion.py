@@ -84,7 +84,7 @@ class RobotMovementBase:
         feature = {}
         obs = self.map_api.perceive(self.robot_id, (self.x, self.y))
         for ob in obs:
-            feature[ob.x, ob.y] = {
+            feature[(ob.x,ob.y)] = {
                 "texture": ob.features.get("texture"),
                 "color": ob.features.get("color"),
                 "slope": ob.features.get("slope"),
@@ -150,8 +150,13 @@ class Drone(RobotMovementBase):
         self.x += result.actual_velocity * self.dt * math.cos(heading)
         self.y += result.actual_velocity * self.dt * math.sin(heading)
         self.battery_state = max(0.0, self.battery_state - (0.02 * self.dt))  # Drain
-
-        return None
+        movement_information = {
+            "heading": heading,
+            "is_stuck": result.is_stuck,
+            "command_velocity": self.speed,
+            "actual_velocity": result.actual_velocity,
+        }
+        return movement_information
 
 class Scout(RobotMovementBase):
     """

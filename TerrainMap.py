@@ -41,16 +41,16 @@ class TerrainMap:
 
     # ── Ingestion: sensor observations ───────────────────────────────────────
 
-    def update_map(self, new_map_information: dict) -> None:
-        new_observation = self._store_observation(new_map_information)
-        new_visited = self._store_movement_information(new_map_information)
+    def update_map(self, observations: dict, movement: dict) -> None:
+        new_observation = self._store_observation(observations)
+        new_visited = self._store_movement_information(movement)
 
         if new_visited: #if new visited cell train the model again
             self.terrain_predictor.update_predictor_model(
                 self.get_observed_cells(),
                 self.get_visited_cells(),
             )
-        elif new_observation: # if just new observation wwe just comute the estimation
+        elif new_observation: # if just new observation wwe just compute the estimation
             self.terrain_predictor.update_prediction(self.get_observed_cells())
 
 
@@ -65,7 +65,7 @@ class TerrainMap:
             }
 
             new_observations = False
-            for x,y,info in obs:
+            for (x,y),info in obs.items():
                 coords = (int(x), int(y))
                 if coords in already_observed:
                     continue
@@ -90,17 +90,12 @@ class TerrainMap:
         }
         new_cells = False
 
-        for x, y, info in movement_information:
-
+        for (x, y), info in movement_information.items():
             coords = (int(x), int(y))
             if coords in visited_set:
                 continue
 
-            # look for visited cells
-            if "heading" not in movement_information[coords]:
-                continue
-
-            cell = self.get_cell(x, y)
+            cell = self.get_cell(coords[0], coords[1])
             cell.set_is_stuck(info["is_stuck"])
 
             # real_traversability is a fixed terrain property — compute once.

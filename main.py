@@ -26,19 +26,16 @@ def main():
             drone.perceive()
             break # Reached target
 
-        new_map_information = {}
+        observations = {}
+        observations.update(rover.perceive())
+        observations.update(scout.perceive())
+        observations.update(drone.perceive())
 
-        # Perceive
-        new_map_information.update(rover.perceive())
-        new_map_information.update(scout.perceive())
-        new_map_information.update(drone.perceive())
+        movement_information = {}
+        movement_information[rover.x, rover.y] = rover.step_towards(rover_heading)
+        movement_information[scout.x, scout.y] = scout.step_towards(scout_heading)
 
-        # -- Move agents
-        new_map_information[rover.x, rover.y].update(rover.step_towards(rover_heading))
-        new_map_information[scout.x, scout.y].update(scout.step_towards(scout_heading))
-        drone.step_towards(drone_heading)
-
-        terrain_map.update_map(new_map_information)
+        terrain_map.update_map(observations, movement_information)
 
 def get_map_api():
     print("Loading MapAPI & Components...")

@@ -70,6 +70,7 @@ class CellData:
                 for v in (self.texture, self.color, self.slope, self.uphill_angle)
         ):
             self.is_observed = True
+            self._refresh_visited()
 
     def _refresh_visited(self) -> None:
         """
