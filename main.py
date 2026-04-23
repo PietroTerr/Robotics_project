@@ -26,6 +26,24 @@ def simulation(data_queue):
         if rover_heading is None:
             data_queue.put(None)  # Signal: simulation done
             print("Simulation Complete.")
+            
+            # --- EVALUATION --------------------------------------------------
+            from TerrainPredictorEvaluator import TerrainPredictorEvaluator
+            visited = terrain_map.get_visited_cells()
+            if len(visited) >= 5:
+                print("\n[EVALUATION] Generando il report del TerrainPredictor a fine missione...")
+                evaluator = TerrainPredictorEvaluator(terrain_map.terrain_predictor, visited)
+                report = evaluator.full_report(k_folds=5)
+                print(report.summary())
+                
+                try:
+                    evaluator.plot_diagnostics()
+                except ImportError as exc:
+                    print(f"[WARN] Impossibile mostrare i grafici: {exc}")
+            else:
+                print("\n[EVALUATION] Non ci sono abbastanza celle esplorate per valutare il modello.")
+            # -----------------------------------------------------------------
+            
             return
 
         observations = {}
