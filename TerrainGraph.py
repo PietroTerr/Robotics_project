@@ -108,9 +108,11 @@ class TerrainGraph:
 
     def __init__(
         self,
+        grid_dimension: tuple = (50,50),
         revisit_penalty_scout: float = 3.0,
         revisit_penalty_drone: float = 2.0,
     ) -> None:
+        self._grid_dimension = grid_dimension
         self.revisit_penalty_scout = revisit_penalty_scout
         self.revisit_penalty_drone = revisit_penalty_drone
 
@@ -136,7 +138,7 @@ class TerrainGraph:
             return
 
         coords = (cell.x, cell.y)
-        self._cells[coords] = cell
+        self._cells[coords] = cell # internally save the cell
 
         if cell.is_observed:
             self._observed_nodes.add(coords)

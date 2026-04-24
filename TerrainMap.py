@@ -26,6 +26,13 @@ class TerrainMap:
 
     # ── Cell access ───────────────────────────────────────────────────────────
 
+    def initialize_map(self):
+        """Pre-populate the grid with empty CellData objects for the entire map."""
+        for x in range(self.width):
+            for y in range(self.height):
+                self.grid[(x, y)] = CellData(x, y)
+                self.terrain_graph.add_cell(self.grid[(x, y)])
+
     def get_cell(self, x: int, y: int) -> CellData:
         """Return the cell at (x, y), creating it lazily if needed."""
         coords = (int(x), int(y))
