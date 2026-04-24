@@ -1,6 +1,3 @@
-import queue
-import threading
-
 from Governor import Governor
 from TerrainMap import TerrainMap
 from motion import Drone, Scout, Rover
@@ -18,7 +15,7 @@ def simulation(data_queue):
     rover = Rover(map_api, "rover_01", start_pos)
 
     terrain_map = TerrainMap()
-    governor = Governor(terrain_map,rover,scout,drone,target)
+    governor = Governor(terrain_map, rover, scout, drone, start_pos, target)
 
     while True:
         # -- Get heading for each agent
