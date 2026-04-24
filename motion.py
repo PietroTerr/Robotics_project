@@ -126,19 +126,27 @@ class Drone(RobotMovementBase):
         self.speed = 1.0
         self.max_tof = 300.0
         self.recharge_time = 3600.0
-
+        self._recharging = False
         self.flight_clock = 0.0
         self.recharge_cycles = 0
         self.battery_state = 1  # 1.0 = fully charged, 0.0 = depleted
+
+    @property
+    def needs_pause(self) -> bool:
+        """True while the drone must stay grounded (dead battery or mid-recharge)."""
+        return self.battery_state == 0.0 or (
+                self.battery_state < 1.0 and self._recharging
+        )
 
     def step_towards(self, heading):
         # if heading = None the drone must recharge
         if heading is None:
             heading = 0.0
             self.map_api.step(self.robot_id, (self.x, self.y), 0.0, heading)
-
             self.battery_state = min(1.0, self.battery_state + (
                         0.002 * self.dt))  # Recharge at 0.002 per second of recharge time
+            if self.battery_state == 1.0:
+                self._recharging = False  # fully recharged, resume flying
             return {"battery_state": self.battery_state}
         result = self.map_api.step(
             robot_id=self.robot_id,
@@ -150,12 +158,9 @@ class Drone(RobotMovementBase):
         self.x += result.actual_velocity * self.dt * math.cos(heading)
         self.y += result.actual_velocity * self.dt * math.sin(heading)
         self.battery_state = max(0.0, self.battery_state - (0.02 * self.dt))  # Drain
-        movement_information = {
-            "heading": heading,
-            "is_stuck": result.is_stuck,
-            "command_velocity": self.speed,
-            "actual_velocity": result.actual_velocity,
-        }
+        if self.battery_state == 0.0:
+            print("Drone start recharging")
+            self._recharging = True  # just ran out, must land
         return {"battery_state": self.battery_state}
 
 

@@ -1,6 +1,6 @@
 from matplotlib import pyplot as plt
 
-from Governor import Governor
+from Governor import Governor, AgentState
 from TerrainMap import TerrainMap
 from motion import Drone, Scout, Rover
 from real_time_plot import MapPlotter
@@ -10,19 +10,34 @@ from src.map_api import MapAPI
 def main():
     map_api = get_map_api()
     start_pos = (5, 5)
-    target = (10, 10)
-    drone = Drone(map_api, "drone_01", start_pos)
-    scout = Scout(map_api, "scout_01", start_pos)
-    rover = Rover(map_api, "rover_01", start_pos)
+    target = (7, 7)
+    drone = Drone(map_api, "drone", start_pos)
+    scout = Scout(map_api, "scout", start_pos)
+    rover = Rover(map_api, "rover", start_pos)
 
     plotter = MapPlotter(grid_size=50)
-
     terrain_map = TerrainMap()
-    governor = Governor(terrain_map, rover, scout, drone, start_pos, target)
+
+    drone_state = AgentState(
+        agent=drone,
+        goals=[target,start_pos],
+        terminal=True,
+    )
+    scout_state = AgentState(
+        agent=scout,
+        goals=[target, start_pos],
+    )
+    rover_state = AgentState(
+        agent=rover,
+        goals=[target],
+    )
+
+    governor = Governor(terrain_map, [drone_state, scout_state, rover_state])
+
     while True:
         # -- Get heading for each agent
-        (rover_heading, scout_heading, drone_heading) = governor.get_heading()
-        if rover_heading is None:
+        headings = governor.get_headings()
+        if governor.done:
             break
 
         observations = {}
@@ -30,11 +45,11 @@ def main():
         observations.update(drone.perceive())
 
         movement_information = {}
-        step_rover_result = rover.step_towards(rover_heading)
+        step_rover_result = rover.step_towards(headings["rover"])
         movement_information[rover.x, rover.y] = step_rover_result
-        step_scout_result = scout.step_towards(scout_heading)
+        step_scout_result = scout.step_towards(headings["scout"])
         movement_information[scout.x, scout.y] = step_scout_result
-        drone.step_towards(drone_heading)
+        drone.step_towards(headings["drone"])
         terrain_map.update_map(observations, movement_information)
 
         agents_positions = [
@@ -51,9 +66,10 @@ def main():
         plotter.update(snapshot["grid"], snapshot["agents"])
 
         # print(agents_positions)
-
+    print("Done")
     plt.ioff()
     plt.show()
+
 
 
 def get_map_api():

@@ -1,58 +1,80 @@
 import math
+from dataclasses import dataclass, field
+from typing import Any
 
 from TerrainMap import TerrainMap
 from motion import Drone, Rover, Scout
 import networkx as nx
 
 
-def goal_reached(position, goal):
-    return step_is_finished(position, goal)
+# ─── AgentState ───────────────────────────────────────────────────────────────
 
+@dataclass
+class AgentState:
+    agent: Any                          # Drone, Scout, Rover, or any future agent
+    goals: list[tuple[float, float]]    # Ordered list of waypoints to cycle through
+    goal_index: int = 0                 # Which goal is currently targeted
+    current_step: tuple = field(default=None)  # Next cell the agent is heading to
+    terminal: bool = False              # If True, signals simulation end on goal reached
+
+    def __post_init__(self):
+        self.current_step = self.goals[0]
+
+    @property
+    def current_goal(self) -> tuple[float, float]:
+        return self.goals[self.goal_index]
+
+    def advance_goal(self):
+        """Move to the next goal, cycling back to 0 when the list is exhausted."""
+        self.goal_index = (self.goal_index + 1) % len(self.goals)
+
+# ─── Governor ─────────────────────────────────────────────────────────────────
 
 class Governor:
 
-    def __init__(self, terrain_map: TerrainMap, rover: Rover, scout: Scout, drone: Drone, start: tuple[float, float],
-                 target: tuple[float, float]):
+    def __init__(self, terrain_map: TerrainMap, agents: list[AgentState]):
         self.terrain_map = terrain_map
-        self.rover = rover
-        self.scout = scout
-        self.drone = drone
-        self.TARGET = target
-        self.start = start
+        self.agents: list[AgentState] = agents
+        self.done = False
 
-        self.drone_goals = [self.TARGET, self.start]
-        self.drone_goal_done_number = 0
-        self.drone_current_step: tuple = self.start
-        self.drone_must_recharge = False
+    def get_headings(self) -> dict[str, float | None]:
+        """
+        Return a dict mapping each robot_id to its heading (radians) or None.
+        None means the agent should stay still (e.g. drone recharging).
+        """
+        return {
+            state.agent.robot_id: self._get_agent_heading(state)
+            for state in self.agents
+        }
 
-    def get_heading(self, ):
-        print(self.drone.battery_state)
-        if self.drone.battery_state == 0.0:
-            self.drone_must_recharge = True
-        if self.drone_must_recharge and self.drone.battery_state == 1.0:
-            self.drone_must_recharge = False
+    # ─── Private ──────────────────────────────────────────────────────────────
 
-        """Return the heading of movement for each agent. This is a placeholder function and should be implemented with actual logic to determine the heading based on the current state of the agents and the environment."""
-        if self.drone.x < 40 and self.drone.y < 40 and self.rover.x < 20 and self.rover.y < 20 and self.scout.y < 20 and self.scout.x < 20:
-            drone = self.get_drone_heading()
-            scout = math.pi / 5
-            rover = math.pi / 6
-        else:
-            drone = None
-            scout = None
-            rover = None
-        return rover, scout, drone
-
-    def get_drone_heading(self, ):
-        if self.drone_must_recharge:
-            print("Drone is recharging")
+    def _get_agent_heading(self, state: AgentState) -> float | None:
+        if getattr(state.agent, "needs_pause", False):
             return None
-        if step_is_finished((self.drone.x, self.drone.y), self.drone_current_step):
-            G = to_networkx(self.terrain_map.terrain_graph.get_graph("drone"))
-            source = _to_cell_coords((self.drone.x, self.drone.y))
-            if goal_reached((self.drone.x, self.drone.y), self.drone_goals[self.drone_goal_done_number]):
-                self.drone_goal_done_number += 1
-            target = _to_cell_coords(self.drone_goals[self.drone_goal_done_number])
+
+        agent = state.agent
+        current_pos = (agent.x, agent.y)
+
+        if _step_is_finished(current_pos, state.current_step):
+
+            # ← cell-level check, consistent with A* granularity
+            if _to_cell_coords(current_pos) == _to_cell_coords(state.current_goal):
+                if state.terminal:
+                    self.done = True  # ← Governor signals completion
+                    return None
+                state.advance_goal()
+
+            source = _to_cell_coords(current_pos)
+            target = _to_cell_coords(state.current_goal)
+
+            # source == target can still happen if advance_goal wraps around
+            # to a goal in the same cell; just aim for the centre directly
+            if source == target:
+                state.current_step = source
+                return _get_direction_to_cell(current_pos, state.current_step)
+
+            G = _to_networkx(self.terrain_map.terrain_graph.get_graph(agent.robot_type))
             path = nx.astar_path(
                 G,
                 source=source,
@@ -60,27 +82,24 @@ class Governor:
                 heuristic=lambda a, b: math.hypot(a[0] - b[0], a[1] - b[1]),
                 weight="weight",
             )
-            self.drone_current_step = path[1]
-            drone_heading = _get_straight_direction_to_a_cell((self.drone.x, self.drone.y), self.drone_current_step)
-            return drone_heading
-        else:
-            return _get_straight_direction_to_a_cell((self.drone.x, self.drone.y), self.drone_current_step)
+            state.current_step = path[1]
+
+        return _get_direction_to_cell(current_pos, state.current_step)
 
 
-def step_is_finished(position: tuple, goal: tuple) -> bool:
-    """
-    Return True if the position is in the goal or not. Goal is achieved if position is near the center of the cell
-    """
+
+# ─── Geometry / Graph Helpers ─────────────────────────────────────────────────
+
+def _step_is_finished(position: tuple, goal: tuple) -> bool:
+    """True when position is within a small radius of the cell centre."""
     radius = 0.05
     goal_x = int(goal[0]) + 0.5
     goal_y = int(goal[1]) + 0.5
-    if goal_x - radius < position[0] < goal_x + radius:
-        if goal_y - radius < position[1] < goal_y + radius:
-            return True
-    return False
+    return (goal_x - radius < position[0] < goal_x + radius and
+            goal_y - radius < position[1] < goal_y + radius)
 
 
-def to_networkx(graph) -> nx.DiGraph:
+def _to_networkx(graph) -> nx.DiGraph:
     G = nx.DiGraph()
     for node in graph:
         for nb, weight in graph[node].items():
@@ -92,17 +111,8 @@ def _to_cell_coords(position: tuple[float, float]) -> tuple[int, int]:
     return int(position[0]), int(position[1])
 
 
-# ─── Geometry Helpers ─────────────────────────────────────────────────────────
-def _get_straight_direction_to_a_cell(start: tuple, end: tuple) -> float:
-    """
-    Return the angle for straight direction between start and end.
-    """
+def _get_direction_to_cell(start: tuple, end: tuple) -> float:
+    """Angle in radians from start toward the centre of cell end."""
     end_x = end[0] + 0.5
     end_y = end[1] + 0.5
-    dx = end_x - start[0]
-    dy = end_y - start[1]
-
-    # math.atan2(dy, dx) restituisce l'angolo in radianti
-    # tra il semiasse positivo x e il punto (dx, dy)
-    heading = math.atan2(dy, dx)
-    return heading
+    return math.atan2(end_y - start[1], end_x - start[0])
