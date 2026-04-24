@@ -201,7 +201,7 @@ class TerrainGraph:
         are visible immediately without calling get_graph again.
         """
         if agent == "rover":
-            return self._visited_graph
+            return self._observed_graph
 
         if agent == "scout":
             return _PenalizedView(

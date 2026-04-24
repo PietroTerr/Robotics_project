@@ -81,10 +81,10 @@ def _axial_projection(point, origin, axis):
 
 # ─── Phase Runner ─────────────────────────────────────────────────────────────
 
-def _run_phase(name, drone, scout, goal, origin, terrain_map, prefer_unexplored=False):
+def _run_phase(name, drone, scout, goal, origin, terrain_map, prefer_unexplored=False, zig_width=ZIG_WIDTH, zig_lookahead=ZIG_LOOKAHEAD):
     axis, perp = _axis_perp(origin, goal)
     goal_proj = _axial_projection(goal, origin, axis)   # Total axial distance to goal
-    FINAL_APPROACH_DIST = ZIG_LOOKAHEAD * 2             # Scout switches to direct nav inside this
+    FINAL_APPROACH_DIST = zig_lookahead * 2             # Scout switches to direct nav inside this
     print(f"\n{'='*60}\n  {name}\n{'='*60}")
 
     drone_done = scout_done = False
@@ -98,6 +98,22 @@ def _run_phase(name, drone, scout, goal, origin, terrain_map, prefer_unexplored=
         # ── Drone ─────────────────────────────────────────────────────
         if not drone_done:
             tx, ty = float(goal[0]), float(goal[1])
+            if prefer_unexplored:
+                d_ang = math.atan2(goal[1] - drone.y, goal[0] - drone.x)
+                best_unobs = None
+                best_dist = float('inf')
+                for d_dist in range(4, 15, 2):
+                    for ang_off in [-0.6, 0.0, 0.6]:
+                        cx = int(drone.x + d_dist * math.cos(d_ang + ang_off))
+                        cy = int(drone.y + d_dist * math.sin(d_ang + ang_off))
+                        if 0 <= cx < 50 and 0 <= cy < 50:
+                            if (cx, cy) not in terrain_map.grid or not terrain_map.grid[(cx, cy)].is_observed:
+                                if d_dist < best_dist:
+                                    best_dist = d_dist
+                                    best_unobs = (cx, cy)
+                if best_unobs:
+                    tx, ty = float(best_unobs[0]), float(best_unobs[1])
+
             drone.step_towards(tx, ty, DT)
 
             # Ingestione Osservazioni Drone
@@ -121,12 +137,31 @@ def _run_phase(name, drone, scout, goal, origin, terrain_map, prefer_unexplored=
                 scout_wp = (float(goal[0]), float(goal[1]))
             else:
                 # Normal zigzag waypoint
-                base_proj = min(scout_proj + ZIG_LOOKAHEAD, goal_proj)
+                base_proj = min(scout_proj + zig_lookahead, goal_proj)
                 if scout_wp is None or math.hypot(scout.x - scout_wp[0], scout.y - scout_wp[1]) < 1.5:
-                    scout_side = -scout_side
+                    if prefer_unexplored:
+                        left_unobs = 0
+                        right_unobs = 0
+                        for d_dist in range(2, int(zig_lookahead * 1.5) + 1):
+                            for w in range(1, int(zig_width)):
+                                lx, ly = int(scout.x + d_dist*axis[0] - w*perp[0]), int(scout.y + d_dist*axis[1] - w*perp[1])
+                                rx, ry = int(scout.x + d_dist*axis[0] + w*perp[0]), int(scout.y + d_dist*axis[1] + w*perp[1])
+                                if 0 <= lx < 50 and 0 <= ly < 50 and ((lx, ly) not in terrain_map.grid or not terrain_map.grid[(lx, ly)].is_observed):
+                                    left_unobs += 1
+                                if 0 <= rx < 50 and 0 <= ry < 50 and ((rx, ry) not in terrain_map.grid or not terrain_map.grid[(rx, ry)].is_observed):
+                                    right_unobs += 1
+                        if left_unobs > right_unobs:
+                            scout_side = -1
+                        elif right_unobs > left_unobs:
+                            scout_side = 1
+                        else:
+                            scout_side = -scout_side
+                    else:
+                        scout_side = -scout_side
+                    
                     scout_wp = (
-                        origin[0] + base_proj * axis[0] + scout_side * ZIG_WIDTH * perp[0],
-                        origin[1] + base_proj * axis[1] + scout_side * ZIG_WIDTH * perp[1],
+                        origin[0] + base_proj * axis[0] + scout_side * zig_width * perp[0],
+                        origin[1] + base_proj * axis[1] + scout_side * zig_width * perp[1],
                     )
 
             pre_x, pre_y = scout.x, scout.y
@@ -163,6 +198,68 @@ def _run_phase(name, drone, scout, goal, origin, terrain_map, prefer_unexplored=
 
     return step, drone_traj, scout_traj, step * DT  # also return simulated seconds
 
+
+def _run_target_sweep(name, scout, target, terrain_map, size=8):
+    print(f"\n{'='*60}\n  {name}\n{'='*60}")
+    
+    # Generate lawnmower pattern around target
+    min_x = max(0, int(target[0]) - size // 2)
+    max_x = min(49, int(target[0]) + size // 2 - 1)
+    min_y = max(0, int(target[1]) - size // 2)
+    max_y = min(49, int(target[1]) + size // 2 - 1)
+
+    waypoints = []
+    go_up = True
+    for x in range(min_x, max_x + 1):
+        y_range = range(min_y, max_y + 1) if go_up else range(max_y, min_y - 1, -1)
+        for y in y_range:
+            waypoints.append((float(x), float(y)))
+        go_up = not go_up
+
+    scout_traj = []
+    step = 0
+    scout_wp_idx = 0
+    
+    # We want to visit all waypoints
+    while scout_wp_idx < len(waypoints) and step < MAX_STEPS:
+        scout_traj.append((scout.x, scout.y))
+        wp = waypoints[scout_wp_idx]
+        
+        # Check if reached waypoint
+        if math.hypot(scout.x - wp[0], scout.y - wp[1]) < 0.5:
+            scout.x, scout.y = float(wp[0]), float(wp[1])
+            scout_wp_idx += 1
+            if scout_wp_idx >= len(waypoints):
+                break
+            wp = waypoints[scout_wp_idx]
+
+        pre_x, pre_y = scout.x, scout.y
+        orientation = math.atan2(wp[1] - scout.y, wp[0] - scout.x)
+        
+        _, was_stuck, _ = scout.step_towards(wp[0], wp[1], DT)
+        
+        actual_dist = math.hypot(scout.x - pre_x, scout.y - pre_y)
+        actual_vel = actual_dist / DT
+        
+        obs = scout.perceive()
+        obs_dict = {(int(o.x), int(o.y)): o.features for o in obs}
+        movement_dict = {
+            (int(round(scout.x)), int(round(scout.y))): {
+                "is_stuck": was_stuck,
+                "heading": orientation,
+                "command_velocity": scout.speed,
+                "actual_velocity": actual_vel,
+            }
+        }
+        terrain_map.update_map(obs_dict, movement_dict)
+
+        step += 1
+        if step % 2000 == 0:
+            print(f"  Sweep Step {step}: Mappa copre {len(terrain_map.grid)} celle.")
+
+    return step, scout_traj, step * DT
+
+
 # ─── Governor Main ────────────────────────────────────────────────────────────
 
 def governor():
@@ -177,7 +274,12 @@ def governor():
 
     # Fase 1: Esplorazione
     steps1, drone_fwd, scout_fwd, sim1 = _run_phase(
-        "PHASE 1: FORWARD", drone, scout, TARGET, START, terrain_map)
+        "PHASE 1: FORWARD", drone, scout, TARGET, START, terrain_map, prefer_unexplored=False, zig_width=ZIG_WIDTH, zig_lookahead=4.0)
+        
+    # Fase 1.5: Target Sweep
+    steps15, scout_sweep, sim15 = _run_target_sweep("PHASE 1.5: 8x8 TARGET SWEEP", scout, TARGET, terrain_map, size=8)
+    scout_fwd.extend(scout_sweep) # append sweep to fwd traj for plotting
+
     steps2, drone_ret, scout_ret, sim2 = _run_phase(
         "PHASE 2: RETURN",  drone, scout, START,  TARGET, terrain_map, True)
 
@@ -214,14 +316,15 @@ def governor():
         print(f"  ✅ Percorso A* trovato: {len(path)} nodi.")
     except Exception as e:
         print(f"  ❌ Errore Pathfinding: {e}")
-        return
+        path = []
 
     # Fase 4: Traversal Rover
     print("\n--- [PHASE 4] ROVER TRAVERSAL ---")
     rover_stuck = False
-    for wp in path[1:]:
-        if rover_stuck:
-            break
+    if path:
+        for wp in path[1:]:
+            if rover_stuck:
+                break
         wp_steps = 0
         while math.hypot(rover.x - wp[0], rover.y - wp[1]) >= 0.15 and wp_steps < 5000:
             _, r_stuck = rover.step_towards(wp[0], wp[1], DT)
@@ -236,26 +339,29 @@ def governor():
 
     # ── Final position report ────────────────────────────────────────────────
     elapsed = time.perf_counter() - wall_start
-    sim_total = sim1 + sim2 + len(path) * 5000 * DT  # rough rover sim-time upper bound
+    sim_total = sim1 + sim15 + sim2 + len(path) * 5000 * DT  # rough rover sim-time upper bound
     rover_sim_time = rover.total_time_spent
 
     print(f"\n{'='*60}")
     print(f"  MISSION LOG")
     print(f"  {'─'*54}")
     print(f"  Phase 1 — steps: {steps1:>6}   sim time: {sim1:>8.1f} s")
+    print(f"  Phase 1.5 — steps: {steps15:>4}   sim time: {sim15:>8.1f} s")
     print(f"  Phase 2 — steps: {steps2:>6}   sim time: {sim2:>8.1f} s")
     print(f"  Rover traversal sim time:         {rover_sim_time:>8.1f} s")
-    print(f"  Total simulated time:             {sim1+sim2+rover_sim_time:>8.1f} s")
+    print(f"  Total simulated time:             {sim1+sim15+sim2+rover_sim_time:>8.1f} s")
     print(f"  Wall-clock time:                  {elapsed:>8.1f} s")
     print(f"  {'─'*54}")
     print(f"  Posizioni finali:")
     print(f"    Drone  → ({drone.x:.4f}, {drone.y:.4f})")
     print(f"    Scout  → ({scout.x:.4f}, {scout.y:.4f})")
     print(f"    Rover  → ({rover.x:.4f}, {rover.y:.4f})")
-    if not rover_stuck:
+    if path and not rover_stuck:
         print(f"  ✅ Tutti e tre gli agenti hanno raggiunto il centro esatto di {TARGET}")
-    else:
+    elif path:
         print(f"  ⚠️  Rover bloccato — non ha raggiunto {TARGET}")
+    else:
+        print(f"  ⚠️  Rover non ha percorso — Pathfinding fallito")
     print(f"  Celle esplorate totali: {len(terrain_map.grid)}")
     print(f"  Stuck events scout: {len(scout.stuck_cells)}")
     print(f"  Nodi A* path: {len(path)}")
