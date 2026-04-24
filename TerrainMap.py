@@ -23,7 +23,7 @@ class TerrainMap:
         self.grid_size = (self.width, self.height)
         self.terrain_predictor = TerrainPredictor()
         self.terrain_graph = TerrainGraph()
-
+        self.initialize_map()
     # ── Cell access ───────────────────────────────────────────────────────────
 
     def initialize_map(self):
@@ -32,7 +32,7 @@ class TerrainMap:
             for y in range(self.height):
                 self.grid[(x, y)] = CellData(x, y)
                 self.terrain_graph.add_cell(self.grid[(x, y)])
-
+        print(self.terrain_graph.get_graph("drone"))
     def get_cell(self, x: int, y: int) -> CellData:
         """Return the cell at (x, y), creating it lazily if needed."""
         coords = (int(x), int(y))

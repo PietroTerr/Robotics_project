@@ -11,7 +11,7 @@ def main():
 
     map_api = get_map_api()
     start_pos = (5,5)
-    target = (5,10)
+    target = (10,40)
     drone = Drone(map_api, "drone_01", start_pos)
     scout = Scout(map_api, "scout_01", start_pos)
     rover = Rover(map_api, "rover_01", start_pos)
@@ -22,7 +22,7 @@ def main():
     governor = Governor(terrain_map, rover, scout, drone, start_pos, target)
     while True:
         # -- Get heading for each agent
-        (rover_heading, scout_heading, drone_heading) = governor.get_heading(drone.battery_state)
+        (rover_heading, scout_heading, drone_heading) = governor.get_heading()
         if rover_heading is None:
             break
 
@@ -51,7 +51,7 @@ def main():
 
         plotter.update(snapshot["grid"], snapshot["agents"])
 
-        print(agents_positions)
+        #print(agents_positions)
 
     plt.ioff()
     plt.show()

@@ -117,10 +117,12 @@ class TerrainGraph:
         self.revisit_penalty_drone = revisit_penalty_drone
 
         # adjacency dicts — base weights, no penalty
+        self._complete_graph: dict[tuple, dict[tuple, float]] = {}
         self._visited_graph:  dict[tuple, dict[tuple, float]] = {}
         self._observed_graph: dict[tuple, dict[tuple, float]] = {}
 
         # penalty sets — live references read by _PenalizedView
+        self._all_nodes: set[tuple] = set()
         self._visited_nodes:  set[tuple] = set()   # scout avoids these
         self._observed_nodes: set[tuple] = set()   # drone  avoids these
 
@@ -151,6 +153,11 @@ class TerrainGraph:
             if coords not in self._visited_graph:
                 self._visited_graph[coords] = {}
             self._wire_edges(self._visited_graph, cell, use_real=True)
+        self._all_nodes.add(coords)
+        if coords not in self._complete_graph:
+            self._complete_graph[coords] = {}
+        self._wire_edges(self._complete_graph, cell, use_real=False)
+
 
     def update_cell(self, cell: CellData) -> None:
         """
@@ -214,7 +221,7 @@ class TerrainGraph:
 
         if agent == "drone":
             return _PenalizedView(
-                self._observed_graph,
+                self._complete_graph,
                 self._observed_nodes,
                 self.revisit_penalty_drone,
             )

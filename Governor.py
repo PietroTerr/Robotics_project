@@ -13,19 +13,24 @@ class Governor:
         self.scout = scout
         self.drone = drone
         self.TARGET = target
-        self.START = start
+        self.start = start
 
-        self.DRONE_DETERMINISTIC = True
-        self.drone_goal = None # None if the drone doesn't have a current goal
+        self.drone_goals = [self.TARGET,self.start]    # None if the drone doesn't have a current goal
+        self.drone_current_step : tuple = self.start
         self.drone_must_recharge = False
 
-        self.SCOUT_DETERMINISTIC = True
 
 
-    def get_heading(self, drone_battery):
+    def get_heading(self,):
+        print(self.drone.battery_state)
+        if self.drone.battery_state == 0.0:
+            self.drone_must_recharge = True
+        if self.drone_must_recharge and self.drone.battery_state == 1.0:
+            self.drone_must_recharge = False
+
         """Return the heading of movement for each agent. This is a placeholder function and should be implemented with actual logic to determine the heading based on the current state of the agents and the environment."""
         if self.drone.x < 40 and self.drone.y<40 and self.rover.x < 20 and self.rover.y < 20 and self.scout.y < 20 and self.scout.x < 20:
-            drone = self.get_drone_heading()
+            drone = self.get_drone_heading_1()
             scout = math.pi/5
             rover = math.pi/6
         else:
@@ -34,56 +39,31 @@ class Governor:
             rover = None
         return rover, scout, drone
 
-    def get_drone_heading(self):
+    def get_drone_heading_1(self,):
         if self.drone_must_recharge:
+            print("Drone is recharging")
             return None
-
-        if self.DRONE_DETERMINISTIC:
-            heading = _get_straight_direction_to_a_cell((self.drone.x, self.drone.y), self.TARGET)
-            if does_have_reached_cell((self.drone.x, self.drone.y), self.TARGET):
-                self.DRONE_DETERMINISTIC = False
-            return heading
-
-        if self.drone_goal is None or does_have_reached_cell((self.drone.x, self.drone.y), self.drone_goal):
+        if step_is_finished((self.drone.x, self.drone.y), self.drone_current_step):
             G = to_networkx(self.terrain_map.terrain_graph.get_graph("drone"))
             source = _to_cell_coords((self.drone.x, self.drone.y))
+
             target = _to_cell_coords(self.TARGET)
-
-            if source not in G or target not in G:
-                # Graph may still be sparse at startup; keep moving toward mission target.
-                return _get_straight_direction_to_a_cell((self.drone.x, self.drone.y), target)
-
-            try:
-                path = nx.astar_path(
-                    G,
-                    source=source,
-                    target=target,
-                    heuristic=lambda a, b: math.hypot(a[0] - b[0], a[1] - b[1]),
-                    weight="weight",
-                )
-            except (nx.NodeNotFound, nx.NetworkXNoPath):
-                return _get_straight_direction_to_a_cell((self.drone.x, self.drone.y), target)
-
-            if len(path) < 2:
-                self.drone_goal = None
-                return None
-
-            self.drone_goal = path[1]
-            drone_heading = _get_straight_direction_to_a_cell((self.drone.x, self.drone.y), self.drone_goal)
+            path = nx.astar_path(
+                G,
+                source=source,
+                target=target,
+                heuristic=lambda a, b: math.hypot(a[0] - b[0], a[1] - b[1]),
+                weight="weight",
+            )
+            self.drone_current_step = path[1]
+            drone_heading = _get_straight_direction_to_a_cell((self.drone.x, self.drone.y), self.drone_current_step)
             return drone_heading
         else:
-            return _get_straight_direction_to_a_cell((self.drone.x, self.drone.y), self.drone_goal)
-
-    def get_scout_heading(self,):
-        if self.SCOUT_DETERMINISTIC:
-            heading = _get_straight_direction_to_a_cell((self.scout.x, self.scout.y), self.TARGET)
-            if does_have_reached_cell((self.scout.x, self.scout.y), self.TARGET):
-                self.DRONE_DETERMINISTIC = False
-            return heading
+            return _get_straight_direction_to_a_cell((self.drone.x, self.drone.y), self.drone_current_step)
 
 
 
-def does_have_reached_cell(position: tuple, goal: tuple) -> bool:
+def step_is_finished(position: tuple, goal: tuple) -> bool:
     """
     Return True if the position is in the goal or not. Goal is achieved if position is near the center of the cell
     """
