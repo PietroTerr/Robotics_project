@@ -4,10 +4,15 @@ from TerrainMap import TerrainMap
 from motion import Drone, Rover, Scout
 import networkx as nx
 
+
+def goal_reached(position, goal):
+    return step_is_finished(position, goal)
+
+
 class Governor:
 
-
-    def __init__(self, terrain_map: TerrainMap, rover: Rover, scout: Scout, drone: Drone,start:tuple, target: tuple):
+    def __init__(self, terrain_map: TerrainMap, rover: Rover, scout: Scout, drone: Drone, start: tuple[float, float],
+                 target: tuple[float, float]):
         self.terrain_map = terrain_map
         self.rover = rover
         self.scout = scout
@@ -15,13 +20,12 @@ class Governor:
         self.TARGET = target
         self.start = start
 
-        self.drone_goals = [self.TARGET,self.start]    # None if the drone doesn't have a current goal
-        self.drone_current_step : tuple = self.start
+        self.drone_goals = [self.TARGET, self.start]
+        self.drone_goal_done_number = 0
+        self.drone_current_step: tuple = self.start
         self.drone_must_recharge = False
 
-
-
-    def get_heading(self,):
+    def get_heading(self, ):
         print(self.drone.battery_state)
         if self.drone.battery_state == 0.0:
             self.drone_must_recharge = True
@@ -29,25 +33,26 @@ class Governor:
             self.drone_must_recharge = False
 
         """Return the heading of movement for each agent. This is a placeholder function and should be implemented with actual logic to determine the heading based on the current state of the agents and the environment."""
-        if self.drone.x < 40 and self.drone.y<40 and self.rover.x < 20 and self.rover.y < 20 and self.scout.y < 20 and self.scout.x < 20:
-            drone = self.get_drone_heading_1()
-            scout = math.pi/5
-            rover = math.pi/6
+        if self.drone.x < 40 and self.drone.y < 40 and self.rover.x < 20 and self.rover.y < 20 and self.scout.y < 20 and self.scout.x < 20:
+            drone = self.get_drone_heading()
+            scout = math.pi / 5
+            rover = math.pi / 6
         else:
             drone = None
             scout = None
             rover = None
         return rover, scout, drone
 
-    def get_drone_heading_1(self,):
+    def get_drone_heading(self, ):
         if self.drone_must_recharge:
             print("Drone is recharging")
             return None
         if step_is_finished((self.drone.x, self.drone.y), self.drone_current_step):
             G = to_networkx(self.terrain_map.terrain_graph.get_graph("drone"))
             source = _to_cell_coords((self.drone.x, self.drone.y))
-
-            target = _to_cell_coords(self.TARGET)
+            if goal_reached((self.drone.x, self.drone.y), self.drone_goals[self.drone_goal_done_number]):
+                self.drone_goal_done_number += 1
+            target = _to_cell_coords(self.drone_goals[self.drone_goal_done_number])
             path = nx.astar_path(
                 G,
                 source=source,
@@ -62,7 +67,6 @@ class Governor:
             return _get_straight_direction_to_a_cell((self.drone.x, self.drone.y), self.drone_current_step)
 
 
-
 def step_is_finished(position: tuple, goal: tuple) -> bool:
     """
     Return True if the position is in the goal or not. Goal is achieved if position is near the center of the cell
@@ -70,10 +74,11 @@ def step_is_finished(position: tuple, goal: tuple) -> bool:
     radius = 0.05
     goal_x = int(goal[0]) + 0.5
     goal_y = int(goal[1]) + 0.5
-    if goal_x-radius < position[0] < goal_x+radius:
-        if goal_y-radius < position[1] < goal_y+radius:
+    if goal_x - radius < position[0] < goal_x + radius:
+        if goal_y - radius < position[1] < goal_y + radius:
             return True
     return False
+
 
 def to_networkx(graph) -> nx.DiGraph:
     G = nx.DiGraph()
@@ -101,4 +106,3 @@ def _get_straight_direction_to_a_cell(start: tuple, end: tuple) -> float:
     # tra il semiasse positivo x e il punto (dx, dy)
     heading = math.atan2(dy, dx)
     return heading
-

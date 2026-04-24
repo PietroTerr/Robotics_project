@@ -45,6 +45,7 @@ class CellData:
     def set_is_stuck(self, is_stuck: bool) -> None:
         self.is_stuck = is_stuck
         self._refresh_visited()
+
     def set_real_traversability(self, real_traversability: float | None) -> None:
         self.real_traversability = real_traversability
         self._refresh_visited()

@@ -24,9 +24,9 @@ class TerrainPredictor:
     # ── Public API ────────────────────────────────────────────────────────────
 
     def update_predictor_model(
-        self,
-        observed_cells: list[CellData],
-        visited_cells: list[CellData],
+            self,
+            observed_cells: list[CellData],
+            visited_cells: list[CellData],
     ) -> None:
         """
         Re-fit both GP models on *visited* cells (ground truth available),
@@ -66,8 +66,8 @@ class TerrainPredictor:
 
     def _build_models(self) -> None:
         kernel = (
-            ConstantKernel(1.0) * Matern(length_scale=1.0, nu=2.5)
-            + WhiteKernel(noise_level=0.1)
+                ConstantKernel(1.0) * Matern(length_scale=1.0, nu=2.5)
+                + WhiteKernel(noise_level=0.1)
         )
         self.gpr = GaussianProcessRegressor(
             kernel=kernel,
@@ -81,12 +81,12 @@ class TerrainPredictor:
     # ── Private: fitting ──────────────────────────────────────────────────────
 
     def _fit_traversability_model(
-        self, x_train: np.ndarray, y_train: np.ndarray
+            self, x_train: np.ndarray, y_train: np.ndarray
     ) -> None:
         self.gpr.fit(x_train, y_train)
 
     def _fit_stuck_model(
-        self, x_train: np.ndarray, y_train: np.ndarray
+            self, x_train: np.ndarray, y_train: np.ndarray
     ) -> None:
         # Classification requires at least one positive and one negative example.
         if len(np.unique(y_train)) > 1:
@@ -98,7 +98,7 @@ class TerrainPredictor:
     # ── Private: prediction ───────────────────────────────────────────────────
 
     def _predict_traversability(
-        self, cells: list[CellData], x_pred: np.ndarray
+            self, cells: list[CellData], x_pred: np.ndarray
     ) -> None:
         """Write traversability_estimate and confidence into each cell."""
         means, stds = self.gpr.predict(x_pred, return_std=True)
@@ -108,7 +108,7 @@ class TerrainPredictor:
             cell.confidence = float(1.0 - std / (std + 1.0))
 
     def _predict_stuck(
-        self, cells: list[CellData], x_pred: np.ndarray
+            self, cells: list[CellData], x_pred: np.ndarray
     ) -> None:
         """Write stuck_probability_estimate into each cell."""
         # BUG FIX: old code called zip(x_pred, proba) — x_pred is a numpy matrix
