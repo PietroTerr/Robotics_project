@@ -91,12 +91,8 @@ class Governor:
 # ─── Geometry / Graph Helpers ─────────────────────────────────────────────────
 
 def _step_is_finished(position: tuple, goal: tuple) -> bool:
-    """True when position is within a small radius of the cell centre."""
-    radius = 0.05
-    goal_x = int(goal[0]) + 0.5
-    goal_y = int(goal[1]) + 0.5
-    return (goal_x - radius < position[0] < goal_x + radius and
-            goal_y - radius < position[1] < goal_y + radius)
+    """True when the agent has entered the goal cell."""
+    return _to_cell_coords(position) == _to_cell_coords(goal)
 
 
 def _to_networkx(graph) -> nx.DiGraph:
