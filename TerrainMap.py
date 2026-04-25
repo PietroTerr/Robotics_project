@@ -4,7 +4,7 @@ import math
 
 from CellData import CellData
 from TerrainPredictor import TerrainPredictor
-from TerrainGraph import TerrainGraph
+from TerrainGraph import SimpleTerrainGraph, ComplexTerrainGraph
 
 
 class TerrainMap:
@@ -22,7 +22,7 @@ class TerrainMap:
         self.height = height
         self.grid_size = (self.width, self.height)
         self.terrain_predictor = TerrainPredictor()
-        self.terrain_graph = TerrainGraph()
+        self.terrain_graph = SimpleTerrainGraph()
         self.initialize_map()
 
     # ── Cell access ───────────────────────────────────────────────────────────

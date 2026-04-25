@@ -16,7 +16,7 @@ class CellData:
         self.real_traversability: float | None = None
 
         # ── Layer 2: Derived estimates (output of TerrainPredictor) ───────────
-        self.traversability_estimate: float = 5.0
+        self.traversability_estimate: float = 0.5
         self.confidence: float = 0.0
         self.stuck_probability_estimate: float = 0.0
 

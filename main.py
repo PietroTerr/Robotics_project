@@ -8,15 +8,14 @@ from src.map_api import MapAPI
 
 def main():
     map_api = get_map_api()
-    start_pos = (15, 15)
-    target = (10, 10)
+    start_pos = (10, 10)
+    target = (15, 15)
     drone = Drone(map_api, "drone", start_pos)
     scout = Scout(map_api, "scout", start_pos)
     rover = Rover(map_api, "rover", start_pos)
 
     ten_seconds = 1 / scout.dt * 10
     sim_logger = SimulationLogger(log_interval=ten_seconds)
-
     plotter = MapPlotter(grid_size=50)
     terrain_map = TerrainMap()
 
@@ -69,7 +68,6 @@ def main():
             "grid": terrain_map.get_grid_snapshot(),
             "agents": agents_positions
         }
-
         plotter.update(snapshot["grid"], governor.agents)
         sim_logger.log_step(step=step,simulation_time = step * scout.dt, drone_position=(drone.x, drone.y), scout_position=(scout.x, scout.y),
                             rover_position=(rover.x, rover.y))

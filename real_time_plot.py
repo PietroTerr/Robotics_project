@@ -1,3 +1,4 @@
+import csv
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
@@ -12,11 +13,18 @@ class MapPlotter:
     _STUCK_RGB      = np.array([0.0, 0.0, 0.0])
     _OBSERVED_BLEND = 0.5   # how much the real color shows through on observed-only cells
 
-    def __init__(self, grid_size: int = 50, capture_every: int = 3):
-        self.grid_size    = grid_size
+    def __init__(self, grid_size: int = 50, capture_every: int = 3, live: bool = False):
+        self.grid_size     = grid_size
         self.capture_every = capture_every
+        self.live          = live
+        self._tick         = 0
 
-        self._tick   = 0
+        if not self.live:
+            # Lightweight mode: only track agent positions
+            self._path_log: list[tuple] = []   # (step, robot_id, x, y)
+            return
+
+        # ── Live mode only below this point ──────────────────────────────────
         self._frames = []
 
         self._color_pool  = cycle(self._PALETTE)
@@ -30,7 +38,7 @@ class MapPlotter:
         self._agent_heads   = {}   # robot_id -> Line2D  (current position dot)
         self._agent_history = {}   # robot_id -> {'x': [], 'y': []}
 
-        # ── Figure setup ─────────────────────────────────────────────────────
+        # ── Figure setup ──────────────────────────────────────────────────────
         plt.ion()
         self.fig, self.ax = plt.subplots(figsize=(8, 8))
         self.ax.set_xlim(-0.5, grid_size - 0.5)
@@ -68,6 +76,17 @@ class MapPlotter:
         agent_states : list of AgentState  (uses .agent.robot_id, .agent.x, .agent.y)
         """
         self._tick += 1
+
+        if not self.live:
+            for state in agent_states:
+                self._path_log.append((
+                    self._tick,
+                    state.agent.robot_id,
+                    state.agent.x,
+                    state.agent.y,
+                ))
+            return
+
         self._update_grid(cells_dict)
         self._update_frontier()
         self._update_agents(agent_states)
@@ -78,11 +97,20 @@ class MapPlotter:
         if self._tick % self.capture_every == 0:
             self.fig.canvas.draw()
             rgba = np.frombuffer(self.fig.canvas.buffer_rgba(), dtype=np.uint8)
-            w, h = self.fig.canvas.get_width_height(physical=True)  # ← actual pixels
+            w, h = self.fig.canvas.get_width_height(physical=True)
             self._frames.append(rgba.reshape(h, w, 4)[..., :3].copy())
 
     def save(self, path: str = "simulation.mp4", fps: int = 15):
-        """Write captured frames to video (mp4) or gif as fallback."""
+        if not self.live:
+            csv_path = path.rsplit(".", 1)[0] + "_paths.csv"
+            with open(csv_path, "w", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow(["step", "robot_id", "x", "y"])
+                writer.writerows(self._path_log)
+            print(f"Saved {len(self._path_log)} rows → {csv_path}")
+            return
+
+        # ── Live mode: save video ─────────────────────────────────────────────
         if not self._frames:
             print("No frames captured — nothing to save.")
             return
@@ -115,7 +143,7 @@ class MapPlotter:
 
         plt.close(save_fig)
 
-    # ── Private helpers ───────────────────────────────────────────────────────
+    # ── Private helpers (live mode only) ──────────────────────────────────────
 
     def _trav_color(self, value: float) -> np.ndarray:
         return np.array(self._trav_cmap(value)[:3])
@@ -153,9 +181,8 @@ class MapPlotter:
 
             elif cell.is_observed:
                 new_observed.add((x, y))
-                est   = cell.traversability_estimate or 0.5
-                full  = self._trav_color(est)
-                # Blend with gray so observed ≠ visited at a glance
+                est  = cell.traversability_estimate or 0.5
+                full = self._trav_color(est)
                 self._map_rgb[y, x] = (self._UNOBSERVED_RGB * (1 - self._OBSERVED_BLEND)
                                        + full * self._OBSERVED_BLEND)
                 if cell.stuck_probability_estimate > 0.5:

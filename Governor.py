@@ -36,7 +36,6 @@ class Governor:
         self.terrain_map = terrain_map
         self.agents: list[AgentState] = agents
         self.done = False
-        _nx_cache: dict[str, nx.DiGraph] = {}  # Cache NetworkX graphs by robot type for efficiency
 
     def get_headings(self) -> dict[str, float | None]:
         """
