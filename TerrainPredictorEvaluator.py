@@ -249,7 +249,7 @@ class TerrainPredictorEvaluator:
 
             # Train a fresh predictor on this fold's training split.
             fold_predictor = TerrainPredictor()
-            fold_predictor.update_predictor_model(train_cells, train_cells)
+            fold_predictor.refit_predictor_model(train_cells, train_cells)
 
             if not fold_predictor._model_fitted:
                 continue

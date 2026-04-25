@@ -40,6 +40,7 @@ In this competition, each team must design an exploration strategy to guide robo
 
 ## Scoring
 
+
 Each run $i$ is assigned a cost:
 
 $$J_i = T_i + \lambda_s \cdot N_i^{\text{stuck}} + \lambda_d \cdot D_i^{\text{final}}$$
@@ -47,8 +48,11 @@ $$J_i = T_i + \lambda_s \cdot N_i^{\text{stuck}} + \lambda_d \cdot D_i^{\text{fi
 where:
 - $T_i$ is the total mission time for run $i$
 - $N_i^{\text{stuck}}$ is the number of stuck events during run $i$
-- $D_i^{\text{final}}$ is the actual distance to target at the end of run $i$
-- $\lambda_s,\, \lambda_d$ are penalty weights (TBD)
+- $D_i^{\text{final}}$ is the cell distance between the robot's final cell and the target cell (CELL DISTANCE)
+- $\lambda_s = 50,000$ (penalty per stuck event)
+- $\lambda_d = 7,000$ (penalty per cell of distance to target)
+
+**Success criterion:** The mission is considered successful if the rover is in the same cell as the target at the end of the run (i.e., $D_i^{\text{final}} = 0$). If the rover is not in the target cell, a distance penalty is applied proportional to the cell distance.
 
 The final score is the average cost over all $N$ runs ($N \geq 3$, ideally $N = 30$):
 

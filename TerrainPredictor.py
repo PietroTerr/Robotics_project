@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 from sklearn.preprocessing import StandardScaler
 from sklearn.gaussian_process import GaussianProcessRegressor, GaussianProcessClassifier
@@ -14,6 +16,7 @@ class TerrainPredictor:
     model (stuck probability) and keeps all observed CellData objects up to date
     with the latest predictions.
     """
+    warnings.filterwarnings('ignore', module='sklearn')
 
     def __init__(self) -> None:
         self._build_models()
@@ -23,7 +26,7 @@ class TerrainPredictor:
 
     # ── Public API ────────────────────────────────────────────────────────────
 
-    def update_predictor_model(
+    def refit_predictor_model(
             self,
             observed_cells: list[CellData],
             visited_cells: list[CellData],

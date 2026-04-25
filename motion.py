@@ -75,7 +75,7 @@ class RobotMovementBase:
         self.map_api.register_robot(self.robot_id, self.robot_type)
 
         # ---  temporary
-        self.dt = 0.1
+        self.dt = 0.2
         self.speed = 1.0
 
     def perceive(self):
@@ -124,9 +124,9 @@ class Drone(RobotMovementBase):
     def __init__(self, map_api: MapAPI, robot_id: str, start_pos: Tuple[float, float]):
         super().__init__(map_api, robot_id, "drone", start_pos)
         self.speed = 1.0
-        self.max_tof = 300.0
-        self.recharge_time = 3600.0
         self._recharging = False
+        self.power_draw=0.02
+        self.battery_recharge = 0.002
         self.flight_clock = 0.0
         self.recharge_cycles = 0
         self.battery_state = 1  # 1.0 = fully charged, 0.0 = depleted
@@ -144,7 +144,7 @@ class Drone(RobotMovementBase):
             heading = 0.0
             self.map_api.step(self.robot_id, (self.x, self.y), 0.0, heading)
             self.battery_state = min(1.0, self.battery_state + (
-                        0.002 * self.dt))  # Recharge at 0.002 per second of recharge time
+                        self.battery_recharge * self.dt))  # Recharge at 0.002 per second of recharge time
             if self.battery_state == 1.0:
                 self._recharging = False  # fully recharged, resume flying
             return {"battery_state": self.battery_state}
@@ -157,7 +157,7 @@ class Drone(RobotMovementBase):
         # Update physical coordinates
         self.x += result.actual_velocity * self.dt * math.cos(heading)
         self.y += result.actual_velocity * self.dt * math.sin(heading)
-        self.battery_state = max(0.0, self.battery_state - (0.02 * self.dt))  # Drain
+        self.battery_state = max(0.0, self.battery_state - (self.power_draw * self.dt))  # Drain
         if self.battery_state == 0.0:
             print("Drone start recharging")
             self._recharging = True  # just ran out, must land

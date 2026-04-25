@@ -32,7 +32,6 @@ class TerrainMap:
             for y in range(self.height):
                 self.grid[(x, y)] = CellData(x, y)
                 self.terrain_graph.add_cell(self.grid[(x, y)])
-        print(self.terrain_graph.get_graph("drone"))
     def get_cell(self, x: int, y: int) -> CellData:
         """Return the cell at (x, y), creating it lazily if needed."""
         coords = (int(x), int(y))
@@ -58,10 +57,7 @@ class TerrainMap:
         observed_cell = self.get_observed_cells()
         if new_visited:
             # New ground truth: re-fit both GP models
-            self.terrain_predictor.update_predictor_model(
-                observed_cell,
-                visited_cell,
-            )
+            self.terrain_predictor.refit_predictor_model(observed_cell, visited_cell)
             # Update graph for every newly visited or stuck cell
             for cell in visited_cell:
                 if cell.is_stuck:

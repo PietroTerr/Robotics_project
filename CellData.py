@@ -18,7 +18,7 @@ class CellData:
         # ── Layer 2: Derived estimates (output of TerrainPredictor) ───────────
         self.traversability_estimate: float = 5.0
         self.confidence: float = 0.0
-        self.stuck_probability_estimate: float = 5.0
+        self.stuck_probability_estimate: float = 0.0
 
         # ── Status flags ──────────────────────────────────────────────────────
         self.is_observed: bool = False

@@ -1,126 +1,207 @@
-import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.collections import LineCollection
+import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+from matplotlib.collections import LineCollection
+from itertools import cycle
 
 
 class MapPlotter:
-    def __init__(self, grid_size: int = 50):
-        self.grid_size = grid_size
 
-        plt.ion()  # Interactive mode
+    _PALETTE = ['cyan', 'magenta', 'yellow', 'lime', 'orange', 'white', 'pink']
+    _UNOBSERVED_RGB = np.array([0.5, 0.5, 0.5])
+    _STUCK_RGB      = np.array([0.0, 0.0, 0.0])
+    _OBSERVED_BLEND = 0.5   # how much the real color shows through on observed-only cells
+
+    def __init__(self, grid_size: int = 50, capture_every: int = 3):
+        self.grid_size    = grid_size
+        self.capture_every = capture_every
+
+        self._tick   = 0
+        self._frames = []
+
+        self._color_pool  = cycle(self._PALETTE)
+        self._agent_color = {}   # robot_id -> color
+
+        self._visited: set[tuple[int, int]] = set()
+        self._observed: set[tuple[int, int]] = set()
+
+        # Per-agent drawing state (lazy init)
+        self._agent_lines   = {}   # robot_id -> Line2D  (full path)
+        self._agent_heads   = {}   # robot_id -> Line2D  (current position dot)
+        self._agent_history = {}   # robot_id -> {'x': [], 'y': []}
+
+        # ── Figure setup ─────────────────────────────────────────────────────
+        plt.ion()
         self.fig, self.ax = plt.subplots(figsize=(8, 8))
         self.ax.set_xlim(-0.5, grid_size - 0.5)
         self.ax.set_ylim(-0.5, grid_size - 0.5)
         self.ax.set_title("Robot Exploration Map")
-        self.ax.set_aspect('equal')
+        self.ax.set_aspect("equal")
 
-        # Grid Background (Gray default)
-        self.map_rgb = np.full((grid_size, grid_size, 3), 0.5)
-        self.img = self.ax.imshow(
-            self.map_rgb,
-            origin='lower',
+        # Colormaps
+        self._trav_cmap  = mcolors.LinearSegmentedColormap.from_list("RdGr", ["red", "green"])
+        self._stuck_cmap = mcolors.LinearSegmentedColormap.from_list("OrRd", ["orange", "red"])
+
+        # Grid image
+        self._map_rgb = np.full((grid_size, grid_size, 3), 0.5)
+        self._img = self.ax.imshow(
+            self._map_rgb, origin="lower",
             extent=[-0.5, grid_size - 0.5, -0.5, grid_size - 0.5],
-            interpolation='nearest'
+            interpolation="nearest",
         )
 
-        # 'X' Marks: Only > 0.5 probability, Orange to Red
-        self.stuck_cmap = mcolors.LinearSegmentedColormap.from_list("OrRd", ["orange", "red"])
-        self.scatter = self.ax.scatter([], [], marker='x', s=40, c=[], cmap=self.stuck_cmap, vmin=0.5, vmax=1.0)
+        # Stuck-probability scatter
+        self._scatter = self.ax.scatter(
+            [], [], marker="x", s=40, c=[],
+            cmap=self._stuck_cmap, vmin=0.5, vmax=1.0, zorder=3,
+        )
 
-        self.frontier_lines = LineCollection([], colors='red', linewidths=2)
-        self.ax.add_collection(self.frontier_lines)
+        # Frontier lines (boundary between visited and observed)
+        self._frontier_lc = LineCollection([], colors="red", linewidths=1.5, alpha=0.8, zorder=2)
+        self.ax.add_collection(self._frontier_lc)
 
-        self.agent_colors = ['cyan', 'magenta', 'yellow']
-        self.agent_names = ['rover', 'scout', 'drone']
+    # ── Public API ────────────────────────────────────────────────────────────
 
-        # Dictionaries to track lines and current-position markers
-        self.agent_lines = {}
-        self.agent_heads = {}  # Fix 14: New dictionary for current positions
-        self.agent_history = {}
+    def update(self, cells_dict: dict, agent_states: list):
+        """
+        cells_dict   : {(x, y): cell_object}
+        agent_states : list of AgentState  (uses .agent.robot_id, .agent.x, .agent.y)
+        """
+        self._tick += 1
+        self._update_grid(cells_dict)
+        self._update_frontier()
+        self._update_agents(agent_states)
 
-        # Traversability Colormap: Red (0.0) -> Green (1.0)
-        self.trav_cmap = mcolors.LinearSegmentedColormap.from_list("RdGr", ["red", "green"])
+        self.fig.canvas.draw_idle()
+        self.fig.canvas.flush_events()
 
-    def update(self, cells_dict: dict, agents_list: list):
+        if self._tick % self.capture_every == 0:
+            self.fig.canvas.draw()
+            rgba = np.frombuffer(self.fig.canvas.buffer_rgba(), dtype=np.uint8)
+            w, h = self.fig.canvas.get_width_height(physical=True)  # ← actual pixels
+            self._frames.append(rgba.reshape(h, w, 4)[..., :3].copy())
+
+    def save(self, path: str = "simulation.mp4", fps: int = 15):
+        """Write captured frames to video (mp4) or gif as fallback."""
+        if not self._frames:
+            print("No frames captured — nothing to save.")
+            return
+
+        from matplotlib.animation import FuncAnimation, FFMpegWriter
+
+        save_fig, save_ax = plt.subplots(figsize=self.fig.get_size_inches())
+        save_ax.axis("off")
+        save_ax.set_position([0, 0, 1, 1])
+        im = save_ax.imshow(self._frames[0])
+
+        def _frame(i):
+            im.set_data(self._frames[i])
+            return (im,)
+
+        anim = FuncAnimation(
+            save_fig, _frame,
+            frames=len(self._frames),
+            interval=1000 / fps,
+            blit=True,
+        )
+
+        try:
+            anim.save(path, writer=FFMpegWriter(fps=fps))
+            print(f"Saved {len(self._frames)} frames → {path}")
+        except Exception:
+            gif_path = path.rsplit(".", 1)[0] + ".gif"
+            anim.save(gif_path, writer="pillow", fps=fps)
+            print(f"FFmpeg unavailable — saved as GIF → {gif_path}")
+
+        plt.close(save_fig)
+
+    # ── Private helpers ───────────────────────────────────────────────────────
+
+    def _trav_color(self, value: float) -> np.ndarray:
+        return np.array(self._trav_cmap(value)[:3])
+
+    def _get_color(self, robot_id: str) -> str:
+        if robot_id not in self._agent_color:
+            self._agent_color[robot_id] = next(self._color_pool)
+        return self._agent_color[robot_id]
+
+    def _init_agent(self, robot_id: str):
+        color = self._get_color(robot_id)
+        line, = self.ax.plot([], [], color=color, linewidth=1.5,
+                             label=robot_id, alpha=0.8, zorder=4)
+        head, = self.ax.plot([], [], color=color, marker="o",
+                             markersize=8, markeredgecolor="white", zorder=5)
+        self._agent_lines[robot_id]   = line
+        self._agent_heads[robot_id]   = head
+        self._agent_history[robot_id] = {"x": [], "y": []}
+        self.ax.legend(loc="upper right", fontsize="small")
+
+    def _update_grid(self, cells_dict: dict):
         scatter_x, scatter_y, scatter_c = [], [], []
-        visited_cells, observed_cells = set(), set()
+        new_visited:  set[tuple[int, int]] = set()
+        new_observed: set[tuple[int, int]] = set()
 
-        # 1. Update Grid Cells & Scatter
         for (x, y), cell in cells_dict.items():
             if not (0 <= x < self.grid_size and 0 <= y < self.grid_size):
                 continue
 
             if cell.is_visited:
-                visited_cells.add((x, y))
-                if cell.is_stuck:
-                    self.map_rgb[y, x] = [0.0, 0.0, 0.0]  # Black
-                else:
-                    trav = cell.real_traversability if cell.real_traversability is not None else 0.5
-                    self.map_rgb[y, x] = self.trav_cmap(trav)[:3]
+                new_visited.add((x, y))
+                color = (self._STUCK_RGB if cell.is_stuck
+                         else self._trav_color(cell.real_traversability or 0.5))
+                self._map_rgb[y, x] = color
 
             elif cell.is_observed:
-                observed_cells.add((x, y))
-                est_trav = cell.traversability_estimate if cell.traversability_estimate is not None else 0.5
-                self.map_rgb[y, x] = self.trav_cmap(est_trav)[:3]
-
-                # Plot X ONLY if probability > 50%
+                new_observed.add((x, y))
+                est   = cell.traversability_estimate or 0.5
+                full  = self._trav_color(est)
+                # Blend with gray so observed ≠ visited at a glance
+                self._map_rgb[y, x] = (self._UNOBSERVED_RGB * (1 - self._OBSERVED_BLEND)
+                                       + full * self._OBSERVED_BLEND)
                 if cell.stuck_probability_estimate > 0.5:
                     scatter_x.append(x)
                     scatter_y.append(y)
                     scatter_c.append(cell.stuck_probability_estimate)
             else:
-                self.map_rgb[y, x] = [0.5, 0.5, 0.5]  # Unobserved is Gray
+                self._map_rgb[y, x] = self._UNOBSERVED_RGB
 
-        self.img.set_data(self.map_rgb)
+        self._visited  = new_visited
+        self._observed = new_observed
+        self._img.set_data(self._map_rgb)
 
         if scatter_x:
-            self.scatter.set_offsets(np.c_[scatter_x, scatter_y])
-            self.scatter.set_array(np.array(scatter_c))
+            self._scatter.set_offsets(np.c_[scatter_x, scatter_y])
+            self._scatter.set_array(np.array(scatter_c))
         else:
-            self.scatter.set_offsets(np.empty((0, 2)))
-            # Fix 13: Reset the color array to prevent colormap dimension mismatches
-            self.scatter.set_array(np.array([]))
+            self._scatter.set_offsets(np.empty((0, 2)))
+            self._scatter.set_array(np.array([]))
 
-            # 2. Frontier Lines
+    def _update_frontier(self):
+        """Draw a red edge wherever a visited cell borders an observed-only cell."""
+        _BORDERS = [
+            ( 1,  0,  0.5, -0.5,  0.5,  0.5),
+            (-1,  0, -0.5, -0.5, -0.5,  0.5),
+            ( 0,  1, -0.5,  0.5,  0.5,  0.5),
+            ( 0, -1, -0.5, -0.5,  0.5, -0.5),
+        ]
         segments = []
-        directions = [(1, 0, 0.5, -0.5, 0.5, 0.5), (-1, 0, -0.5, -0.5, -0.5, 0.5),
-                      (0, 1, -0.5, 0.5, 0.5, 0.5), (0, -1, -0.5, -0.5, 0.5, -0.5)]
-
-        for vx, vy in visited_cells:
-            for dx, dy, x1, y1, x2, y2 in directions:
-                nx, ny = vx + dx, vy + dy
-                if (nx, ny) in observed_cells and (nx, ny) not in visited_cells:
+        for vx, vy in self._visited:
+            for dx, dy, x1, y1, x2, y2 in _BORDERS:
+                nb = (vx + dx, vy + dy)
+                if nb in self._observed and nb not in self._visited:
                     segments.append([(vx + x1, vy + y1), (vx + x2, vy + y2)])
-        self.frontier_lines.set_segments(segments)
+        self._frontier_lc.set_segments(segments)
 
-        # 3. Agent Paths and Heads
-        for i, (ax_pos, ay_pos) in enumerate(agents_list):
-            agent_id = self.agent_names[i]
-            color = self.agent_colors[i]
+    def _update_agents(self, agent_states: list):
+        for state in agent_states:
+            rid = state.agent.robot_id
+            x, y = state.agent.x, state.agent.y
 
-            if agent_id not in self.agent_lines:
-                # Initialize the path line
-                line, = self.ax.plot([], [], color=color, linewidth=2, label=agent_id)
-                self.agent_lines[agent_id] = line
+            if rid not in self._agent_lines:
+                self._init_agent(rid)
 
-                # Fix 14: Initialize the current position marker (a solid dot with a white edge)
-                head, = self.ax.plot([], [], color=color, marker='o', markersize=8, markeredgecolor='white')
-                self.agent_heads[agent_id] = head
-
-                self.agent_history[agent_id] = {'x': [], 'y': []}
-                self.ax.legend(loc='upper right', fontsize='small')
-
-            # Update history line
-            self.agent_history[agent_id]['x'].append(ax_pos)
-            self.agent_history[agent_id]['y'].append(ay_pos)
-            self.agent_lines[agent_id].set_data(
-                self.agent_history[agent_id]['x'], self.agent_history[agent_id]['y']
-            )
-
-            # Fix 14: Update current position marker
-            self.agent_heads[agent_id].set_data([ax_pos], [ay_pos])
-
-        # Fix 12: Explicitly flag the canvas for a redraw and flush GUI events
-        self.fig.canvas.draw_idle()
-        self.fig.canvas.flush_events()
+            hist = self._agent_history[rid]
+            hist["x"].append(x)
+            hist["y"].append(y)
+            self._agent_lines[rid].set_data(hist["x"], hist["y"])
+            self._agent_heads[rid].set_data([x], [y])
