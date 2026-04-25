@@ -4,7 +4,7 @@ import math
 
 from CellData import CellData
 from TerrainPredictor import TerrainPredictor
-from TerrainGraph import SimpleTerrainGraph, ComplexTerrainGraph
+from TerrainGraph import TerrainGraph
 
 
 class TerrainMap:
@@ -16,13 +16,21 @@ class TerrainMap:
     avoiding the memory cost of a dense grid.
     """
 
+    # GP refit is O(n³) — only refit after this many new visited cells.
+    # Tune this value to balance prediction accuracy vs. computation cost.
+    REFIT_INTERVAL: int = 5
+
     def __init__(self, width: int = 50, height: int = 50) -> None:
         self.grid: dict[tuple[int, int], CellData] = {}
         self.width = width
         self.height = height
         self.grid_size = (self.width, self.height)
         self.terrain_predictor = TerrainPredictor()
-        self.terrain_graph = SimpleTerrainGraph()
+        self.terrain_graph = TerrainGraph()
+
+        # Throttle counter: number of new visited cells since the last GP refit
+        self._new_visited_since_refit: int = 0
+
         self.initialize_map()
 
     # ── Cell access ───────────────────────────────────────────────────────────
@@ -52,32 +60,38 @@ class TerrainMap:
     # ── Ingestion: sensor observations ───────────────────────────────────────
 
     def update_map(self, observations: dict, movement: dict) -> None:
-        new_observation,new_observed_cells = self._store_observation(observations)
+        new_observation = self._store_observation(observations)
         new_visited = self._store_movement_information(movement)
 
-        visited_cell = self.get_visited_cells()
-        observed_cell = self.get_observed_cells()
+        visited_cells = self.get_visited_cells()
+        observed_cells = self.get_observed_cells()
+
         if new_visited:
-            # New ground truth: re-fit both GP models
-            self.terrain_predictor.refit_predictor_model(observed_cell, visited_cell)
-            # Update graph for every newly visited or stuck cell
-            for cell in visited_cell:
+            self._new_visited_since_refit += 1
+
+            if self._new_visited_since_refit % self.REFIT_INTERVAL == 0:
+                # Full GP refit on ground-truth data, then refresh all estimates
+                self.terrain_predictor.refit_predictor_model(observed_cells, visited_cells)
+            else:
+                # Cheap update: push current GP predictions into observed cells
+                self.terrain_predictor.update_prediction(observed_cells)
+
+            # Update graph for every visited cell.
+            # update_cell handles stuck cells internally (rewires with 0.01 trav).
+            for cell in visited_cells:
                 self.terrain_graph.update_cell(cell)
 
         elif new_observation:
-            # New observations only: refresh GP estimates
-            self.terrain_predictor.update_prediction(new_observed_cells)
-            # Add newly observed cells to the observed graph
-            for cell in observed_cell:
+            # New sensor data only — refresh GP estimates, add new cells to graph
+            self.terrain_predictor.update_prediction(observed_cells)
+            for cell in observed_cells:
                 self.terrain_graph.add_cell(cell)
 
-    def _store_observation(self, obs):
+    def _store_observation(self, obs) -> bool:
         """
         Record sensor observations for a batch of cells.
         """
-
         new_observations = False
-        new_observed_cells = []
         for (x, y), info in obs.items():
             coords = (int(x), int(y))
             cell = self.get_cell(coords[0], coords[1])
@@ -87,16 +101,15 @@ class TerrainMap:
             cell.set_color(info["color"])
             cell.set_slope(info["slope"])
             cell.set_uphill_angle(info["uphill_angle"])
-            new_observed_cells.append(cell)
             new_observations = True
-        return new_observations, new_observed_cells
+        return new_observations
 
     # ── Ingestion: movement / traversal feedback ──────────────────────────────
 
     def _store_movement_information(self, movement_information: dict):
         """
         Process post-movement telemetry from all agents, compute ground-truth
-        traversability
+        traversability.
         """
         visited_set: set[tuple[int, int]] = {
             (c.x, c.y) for c in self.get_visited_cells()
@@ -137,25 +150,25 @@ class TerrainMap:
 # ── Module-level utilities ────────────────────────────────────────────────────
 
 def _directional_slope_factor(
-        slope: float,
-        uphill_angle: float,
-        movement_orientation: float,
-        *,
-        uphill_penalty: float = 1.0,
-        downhill_boost: float = 0.2,
-        slope_max_degrees: float = 30.0,
+    slope: float,
+    uphill_angle: float,
+    movement_orientation: float,
+    *,
+    uphill_penalty: float = 1.0,
+    downhill_boost: float = 0.2,
+    slope_max_degrees: float = 30.0,
 ) -> float:
     """
     Return a scalar in (0, 1.2] that adjusts commanded velocity based on the
     angle between the agent's heading and the uphill direction.
 
-    - Going directly uphill  → factor approaches (1 - uphill_penalty) = 0.
+    - Going directly uphill   → factor approaches (1 - uphill_penalty) = 0.
     - Going directly downhill → factor approaches (1 + downhill_boost) = 1.2.
     - Perpendicular to slope  → factor = 1.0 (no adjustment).
     """
     ux, uy = math.cos(uphill_angle), math.sin(uphill_angle)
     mx, my = math.cos(movement_orientation), math.sin(movement_orientation)
-    alignment = ux * mx + uy * my  # dot product ∈ [-1, 1]
+    alignment = ux * mx + uy * my                            # dot product ∈ [-1, 1]
     slope_norm = _clamp(slope / slope_max_degrees, 0.0, 1.0)
     signed_grade = slope_norm * alignment
 
@@ -164,9 +177,6 @@ def _directional_slope_factor(
 
     downhill_alignment = -signed_grade
     return 1.0 + downhill_boost * downhill_alignment
-
-
-# ── Module-level utilities ────────────────────────────────────────────────────
 
 
 def _clamp(value: float, low: float, high: float) -> float:
