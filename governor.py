@@ -60,13 +60,14 @@ from TerrainMap import TerrainMap
 from motion import Drone, Scout, Rover
 
 # ─── Parametri Missione ───────────────────────────────────────────────────────
-START      = (5, 5)
-TARGET     = (30, 30)
+START      = (10, 1)
+TARGET     = (40, 37)
 DT         = 0.2
 ZIG_WIDTH  = 10
 ZIG_LOOKAHEAD = 8.0
 MAX_STEPS  = float('inf')
-MAP_CSV    = PROJECT_ROOT / "src" / "map_001_seed1.csv"
+# MAP_CSV    = PROJECT_ROOT / "src" / "map_013_seed13.csv"
+MAP_CSV    = PROJECT_ROOT / "generated_maps" / "map_013_seed13.csv"
 
 # ─── Geometry Helpers ─────────────────────────────────────────────────────────
 
@@ -159,9 +160,11 @@ def _run_phase(name, drone, scout, goal, origin, terrain_map, prefer_unexplored=
                     else:
                         scout_side = -scout_side
                     
+                    raw_wp_x = origin[0] + base_proj * axis[0] + scout_side * zig_width * perp[0]
+                    raw_wp_y = origin[1] + base_proj * axis[1] + scout_side * zig_width * perp[1]
                     scout_wp = (
-                        origin[0] + base_proj * axis[0] + scout_side * zig_width * perp[0],
-                        origin[1] + base_proj * axis[1] + scout_side * zig_width * perp[1],
+                        max(0.0, min(49.0, raw_wp_x)),
+                        max(0.0, min(49.0, raw_wp_y)),
                     )
 
             pre_x, pre_y = scout.x, scout.y
