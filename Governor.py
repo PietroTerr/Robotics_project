@@ -36,6 +36,7 @@ class Governor:
         self.terrain_map = terrain_map
         self.agents: list[AgentState] = agents
         self.done = False
+        _nx_cache: dict[str, nx.DiGraph] = {}  # Cache NetworkX graphs by robot type for efficiency
 
     def get_headings(self) -> dict[str, float | None]:
         """
@@ -67,14 +68,12 @@ class Governor:
 
             source = _to_cell_coords(current_pos)
             target = _to_cell_coords(state.current_goal)
-
-            # source == target can still happen if advance_goal wraps around
-            # to a goal in the same cell; just aim for the centre directly
             if source == target:
                 state.current_step = source
                 return _get_direction_to_cell(current_pos, state.current_step)
 
             G = _to_networkx(self.terrain_map.terrain_graph.get_graph(agent.robot_type))
+
             path = nx.astar_path(
                 G,
                 source=source,

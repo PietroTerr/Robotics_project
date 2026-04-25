@@ -24,6 +24,7 @@ class TerrainMap:
         self.terrain_predictor = TerrainPredictor()
         self.terrain_graph = TerrainGraph()
         self.initialize_map()
+
     # ── Cell access ───────────────────────────────────────────────────────────
 
     def initialize_map(self):
@@ -32,6 +33,7 @@ class TerrainMap:
             for y in range(self.height):
                 self.grid[(x, y)] = CellData(x, y)
                 self.terrain_graph.add_cell(self.grid[(x, y)])
+
     def get_cell(self, x: int, y: int) -> CellData:
         """Return the cell at (x, y), creating it lazily if needed."""
         coords = (int(x), int(y))
@@ -50,7 +52,7 @@ class TerrainMap:
     # ── Ingestion: sensor observations ───────────────────────────────────────
 
     def update_map(self, observations: dict, movement: dict) -> None:
-        new_observation = self._store_observation(observations)
+        new_observation,new_observed_cells = self._store_observation(observations)
         new_visited = self._store_movement_information(movement)
 
         visited_cell = self.get_visited_cells()
@@ -60,38 +62,34 @@ class TerrainMap:
             self.terrain_predictor.refit_predictor_model(observed_cell, visited_cell)
             # Update graph for every newly visited or stuck cell
             for cell in visited_cell:
-                if cell.is_stuck:
-                    self.terrain_graph.remove_cell(cell.x, cell.y)
-                else:
-                    self.terrain_graph.update_cell(cell)
+                self.terrain_graph.update_cell(cell)
 
         elif new_observation:
             # New observations only: refresh GP estimates
-            self.terrain_predictor.update_prediction(observed_cell)
+            self.terrain_predictor.update_prediction(new_observed_cells)
             # Add newly observed cells to the observed graph
             for cell in observed_cell:
                 self.terrain_graph.add_cell(cell)
 
+    def _store_observation(self, obs):
+        """
+        Record sensor observations for a batch of cells.
+        """
 
-
-    def _store_observation(self, obs) -> bool:
-            """
-            Record sensor observations for a batch of cells.
-            """
-
-            new_observations = False
-            for (x,y),info in obs.items():
-                coords = (int(x), int(y))
-                cell = self.get_cell(coords[0], coords[1])
-                if self.grid.get(coords).is_observed:
-                    continue
-                cell.set_texture(info["texture"])
-                cell.set_color(info["color"])
-                cell.set_slope(info["slope"])
-                cell.set_uphill_angle(info["uphill_angle"])
-                new_observations = True
-            return new_observations
-
+        new_observations = False
+        new_observed_cells = []
+        for (x, y), info in obs.items():
+            coords = (int(x), int(y))
+            cell = self.get_cell(coords[0], coords[1])
+            if self.grid.get(coords).is_observed:
+                continue
+            cell.set_texture(info["texture"])
+            cell.set_color(info["color"])
+            cell.set_slope(info["slope"])
+            cell.set_uphill_angle(info["uphill_angle"])
+            new_observed_cells.append(cell)
+            new_observations = True
+        return new_observations, new_observed_cells
 
     # ── Ingestion: movement / traversal feedback ──────────────────────────────
 
@@ -135,16 +133,17 @@ class TerrainMap:
         """Return a copy of the current grid state for plotting."""
         return {coords: cell for coords, cell in self.grid.items()}
 
+
 # ── Module-level utilities ────────────────────────────────────────────────────
 
 def _directional_slope_factor(
-    slope: float,
-    uphill_angle: float,
-    movement_orientation: float,
-    *,
-    uphill_penalty: float = 1.0,
-    downhill_boost: float = 0.2,
-    slope_max_degrees: float = 30.0,
+        slope: float,
+        uphill_angle: float,
+        movement_orientation: float,
+        *,
+        uphill_penalty: float = 1.0,
+        downhill_boost: float = 0.2,
+        slope_max_degrees: float = 30.0,
 ) -> float:
     """
     Return a scalar in (0, 1.2] that adjusts commanded velocity based on the
@@ -156,7 +155,7 @@ def _directional_slope_factor(
     """
     ux, uy = math.cos(uphill_angle), math.sin(uphill_angle)
     mx, my = math.cos(movement_orientation), math.sin(movement_orientation)
-    alignment = ux * mx + uy * my                            # dot product ∈ [-1, 1]
+    alignment = ux * mx + uy * my  # dot product ∈ [-1, 1]
     slope_norm = _clamp(slope / slope_max_degrees, 0.0, 1.0)
     signed_grade = slope_norm * alignment
 

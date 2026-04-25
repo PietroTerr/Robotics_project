@@ -8,8 +8,8 @@ from src.map_api import MapAPI
 
 def main():
     map_api = get_map_api()
-    start_pos = (10, 29)
-    target = (10, 12)
+    start_pos = (15, 15)
+    target = (10, 10)
     drone = Drone(map_api, "drone", start_pos)
     scout = Scout(map_api, "scout", start_pos)
     rover = Rover(map_api, "rover", start_pos)

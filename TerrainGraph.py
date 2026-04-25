@@ -47,10 +47,10 @@ class _PenalizedView:
     """
 
     def __init__(
-            self,
-            graph: dict[tuple, dict[tuple, float]],
-            penalty_nodes: set[tuple],
-            penalty: float,
+        self,
+        graph: dict[tuple, dict[tuple, float]],
+        penalty_nodes: set[tuple],
+        penalty: float,
     ) -> None:
         self._graph = graph
         self._penalty_nodes = penalty_nodes
@@ -107,10 +107,10 @@ class TerrainGraph:
     """
 
     def __init__(
-            self,
-            grid_dimension: tuple = (50, 50),
-            revisit_penalty_scout: float = 3.0,
-            revisit_penalty_drone: float = 2.0,
+        self,
+        grid_dimension: tuple = (50,50),
+        revisit_penalty_scout: float = 3.0,
+        revisit_penalty_drone: float = 2.0,
     ) -> None:
         self._grid_dimension = grid_dimension
         self.revisit_penalty_scout = revisit_penalty_scout
@@ -118,13 +118,13 @@ class TerrainGraph:
 
         # adjacency dicts — base weights, no penalty
         self._complete_graph: dict[tuple, dict[tuple, float]] = {}
-        self._visited_graph: dict[tuple, dict[tuple, float]] = {}
+        self._visited_graph:  dict[tuple, dict[tuple, float]] = {}
         self._observed_graph: dict[tuple, dict[tuple, float]] = {}
 
         # penalty sets — live references read by _PenalizedView
         self._all_nodes: set[tuple] = set()
-        self._visited_nodes: set[tuple] = set()  # scout avoids these
-        self._observed_nodes: set[tuple] = set()  # drone  avoids these
+        self._visited_nodes:  set[tuple] = set()   # scout avoids these
+        self._observed_nodes: set[tuple] = set()   # drone  avoids these
 
         # cell registry for traversability / slope lookups
         self._cells: dict[tuple, CellData] = {}
@@ -140,7 +140,7 @@ class TerrainGraph:
             return
 
         coords = (cell.x, cell.y)
-        self._cells[coords] = cell  # internally save the cell
+        self._cells[coords] = cell # internally save the cell
 
         if cell.is_observed:
             self._observed_nodes.add(coords)
@@ -157,6 +157,7 @@ class TerrainGraph:
         if coords not in self._complete_graph:
             self._complete_graph[coords] = {}
         self._wire_edges(self._complete_graph, cell, use_real=False)
+
 
     def update_cell(self, cell: CellData) -> None:
         """
@@ -230,10 +231,10 @@ class TerrainGraph:
     # ── Private: edge wiring ──────────────────────────────────────────────────
 
     def _wire_edges(
-            self,
-            graph: dict[tuple, dict[tuple, float]],
-            cell: CellData,
-            use_real: bool,
+        self,
+        graph: dict[tuple, dict[tuple, float]],
+        cell: CellData,
+        use_real: bool,
     ) -> None:
         """
         Connect `cell` to every existing neighbour in `graph`.
@@ -251,10 +252,10 @@ class TerrainGraph:
             graph[nb_coords][coords] = _edge_weight(nb_cell, cell, diagonal, use_real)
 
     def _rewire_edges(
-            self,
-            graph: dict[tuple, dict[tuple, float]],
-            cell: CellData,
-            use_real: bool,
+        self,
+        graph: dict[tuple, dict[tuple, float]],
+        cell: CellData,
+        use_real: bool,
     ) -> None:
         """
         Clear and recompute all edges touching `cell`.
@@ -274,9 +275,9 @@ class TerrainGraph:
         self._wire_edges(graph, cell, use_real)
 
     def _existing_neighbours(
-            self,
-            cell: CellData,
-            graph: dict,
+        self,
+        cell: CellData,
+        graph: dict,
     ) -> list[tuple[tuple, CellData]]:
         """
         Return (coords, CellData) for the 8-connected neighbours
@@ -293,10 +294,10 @@ class TerrainGraph:
 # ── Module-level weight helpers ───────────────────────────────────────────────
 
 def _edge_weight(
-        src: CellData,
-        dst: CellData,
-        diagonal: bool,
-        use_real: bool,
+    src: CellData,
+    dst: CellData,
+    diagonal: bool,
+    use_real: bool,
 ) -> float:
     """
     Directed edge cost from src to dst.
@@ -307,7 +308,7 @@ def _edge_weight(
     whether the agent is heading uphill, downhill or across the slope.
     """
     trav = _traversability(dst, use_real)
-    trav = max(trav, 1e-3)  # guard against zero
+    trav = max(trav, 1e-3)                           # guard against zero
 
     heading = math.atan2(dst.y - src.y, dst.x - src.x)
     slope_f = _directional_slope_factor(
@@ -315,7 +316,7 @@ def _edge_weight(
         dst.uphill_angle or 0.0,
         heading,
     )
-    slope_f = max(slope_f, 1e-3)  # guard against zero
+    slope_f = max(slope_f, 1e-3)                     # guard against zero
 
     diagonal_mult = SQRT2 if diagonal else 1.0
     return (1.0 / trav) * slope_f * diagonal_mult
@@ -338,13 +339,13 @@ def _traversability(cell: CellData, use_real: bool) -> float:
 
 
 def _directional_slope_factor(
-        slope: float,
-        uphill_angle: float,
-        movement_orientation: float,
-        *,
-        uphill_penalty: float = 1.0,
-        downhill_boost: float = 0.2,
-        slope_max_degrees: float = 30.0,
+    slope: float,
+    uphill_angle: float,
+    movement_orientation: float,
+    *,
+    uphill_penalty: float = 1.0,
+    downhill_boost: float = 0.2,
+    slope_max_degrees: float = 30.0,
 ) -> float:
     """
     Return a scalar in (0, 1.2] that modulates cost based on the

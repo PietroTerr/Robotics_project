@@ -125,7 +125,7 @@ class Drone(RobotMovementBase):
         super().__init__(map_api, robot_id, "drone", start_pos)
         self.speed = 1.0
         self._recharging = False
-        self.power_draw=0.02
+        self.power_draw = 0.02
         self.battery_recharge = 0.002
         self.flight_clock = 0.0
         self.recharge_cycles = 0
@@ -144,7 +144,7 @@ class Drone(RobotMovementBase):
             heading = 0.0
             self.map_api.step(self.robot_id, (self.x, self.y), 0.0, heading)
             self.battery_state = min(1.0, self.battery_state + (
-                        self.battery_recharge * self.dt))  # Recharge at 0.002 per second of recharge time
+                    self.battery_recharge * self.dt))  # Recharge at 0.002 per second of recharge time
             if self.battery_state == 1.0:
                 self._recharging = False  # fully recharged, resume flying
             return {"battery_state": self.battery_state}
