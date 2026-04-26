@@ -13,7 +13,7 @@ class MapPlotter:
     _STUCK_RGB      = np.array([0.0, 0.0, 0.0])
     _OBSERVED_BLEND = 0.5   # how much the real color shows through on observed-only cells
 
-    def __init__(self, grid_size: int = 50, capture_every: int = 3, live: bool = False):
+    def __init__(self, grid_size: int = 50, capture_every: int = 3,live: bool = False):
         self.grid_size     = grid_size
         self.capture_every = capture_every
         self.live          = live

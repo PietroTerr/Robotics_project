@@ -5,12 +5,13 @@ import matplotlib.patches as mpatches
 from matplotlib.colors import Normalize, LinearSegmentedColormap
 
 # ── Load ──────────────────────────────────────────────────────────────────────
-CSV_PATH = "src/map_001_seed1.csv"
-PATH_CSV = "simulation_paths.csv"
+MAP = "map_002_seed2"
+CSV_MAP = "src/" + MAP + ".csv"
+PATH_CSV = MAP + "_paths.csv"
 GRID_SIZE = 50
 
 # Load map data
-df = pd.read_csv(CSV_PATH)
+df = pd.read_csv(CSV_MAP)
 
 # Load path data
 try:
@@ -143,7 +144,8 @@ for ax in axes.flat:
     ax.set_ylabel("y (m)", color="gray", fontsize=8)
 
 plt.tight_layout(rect=[0, 0, 1, 0.97])
-plt.savefig("map_overview.png", dpi=150, bbox_inches="tight",
+
+plt.savefig(CSV_MAP.replace('.csv', '.png'), dpi=150, bbox_inches="tight",
             facecolor=fig.get_facecolor())
 print("Saved → map_overview.png")
 plt.show()

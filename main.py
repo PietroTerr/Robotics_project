@@ -6,10 +6,10 @@ from real_time_plot import MapPlotter
 from src.map_api import MapAPI
 
 
-def main():
-    map_api = get_map_api()
+def main(map):
+    map_api = get_map_api("generated_maps/" + map + ".csv")
     start_pos = (4, 34)
-    target = (40, 20)
+    target = (4, 35)
     drone = Drone(map_api , "drone", start_pos)
     scout = Scout(map_api, "scout", start_pos)
     rover = Rover(map_api, "rover", start_pos)
@@ -73,15 +73,14 @@ def main():
                             rover_position=(rover.x, rover.y))
 
     print("Done")
-    plotter.save("simulation.mp4", fps=15)
+    plotter.save(map, fps=15)
 
 
-def get_map_api():
+def get_map_api(csv_path):
     print("Loading MapAPI & Components...")
-    csv_path = "src/map_001_seed1.csv"
     map_api = MapAPI(terrain=csv_path, rng_seed=42)
     return map_api
 
 
 if __name__ == "__main__":
-    main()
+    main(map="map_002_seed2")

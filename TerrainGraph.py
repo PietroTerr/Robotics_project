@@ -119,7 +119,7 @@ class TerrainGraph:
             grid_dimension: tuple = (50, 50),
             revisit_penalty_scout: float = 3.0,
             revisit_penalty_drone: float = 2.0,
-            pessimistic_default: float = 0.3,
+            pessimistic_default: float = 0.5,
     ) -> None:
         self._grid_dimension = grid_dimension
         self.revisit_penalty_scout = revisit_penalty_scout
@@ -312,7 +312,7 @@ def _edge_weight(
     slope_f = max(slope_f, 1e-3)  # guard against zero
 
     diagonal_mult = SQRT2 if diagonal else 1.0
-    return (1.0 / trav) * slope_f * diagonal_mult
+    return (1.0 / trav) * (0.5* slope_f) * diagonal_mult
 
 
 def _traversability(cell: CellData, pessimistic_default: float) -> float:
