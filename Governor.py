@@ -5,7 +5,6 @@ from typing import Any
 import networkx as nx
 
 from TerrainMap import TerrainMap
-from motion import Drone, Rover, Scout
 
 
 # ─── AgentState ───────────────────────────────────────────────────────────────

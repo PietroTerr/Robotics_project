@@ -5,8 +5,8 @@ import matplotlib.patches as mpatches
 from matplotlib.colors import Normalize, LinearSegmentedColormap
 
 # ── Load ──────────────────────────────────────────────────────────────────────
-MAP = "map_002_seed2"
-CSV_MAP = "src/" + MAP + ".csv"
+MAP = "map_013_seed13"
+CSV_MAP = "generated_maps/" + MAP + ".csv"
 PATH_CSV = MAP + "_paths.csv"
 GRID_SIZE = 50
 

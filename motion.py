@@ -2,84 +2,75 @@
 Motion Module
 =============
 
-This module defines the movement capabilities and constraints for various types of robots 
-(Drone, Scout, Rover) used in the exploration simulation. Each robot type inherits from 
-the `RobotMovementBase` class and implements specific behaviors such as perception, 
-step execution, and constraints (e.g., drone battery flight time, scout terrain interaction, 
-and rover immobility on stuck events).
+Movement and perception models for the three agents used in the simulation:
 
-Classes:
-- RobotMovementBase: Base class for common robot state and API registration.
-- Drone: Fast moving aerial vehicle that requires periodic solar recharging and observes observable data.
-- Scout: Ground vehicle that logs physical constraints and powers through stuck events.
-- Rover: Heavy ground vehicle that relies on purely optimized paths and gets immobilized by stuck events.
+- `Drone`: aerial scout with battery and recharge constraints.
+- `Scout`: ground robot that explores and logs terrain interaction data.
+- `Rover`: ground robot used for conservative/goal-directed motion.
 
-Usage in a main() method:
--------------------------
-To use these robot classes in your main orchestrator, initialize a MapAPI instance and pass it 
-along with an ID and starting coordinates to the respective robot constructors. Then call 
-`.perceive()` to gather data and `.step_towards()` iteratively to advance physically in the simulation.
+Design notes
+------------
+- All robots share a common API through `RobotMovementBase`.
+- Positions are continuous floats `(x, y)` in map coordinates.
+- Navigation controllers provide a heading (radians) to `step_towards`.
+- The map backend (`MapAPI`) resolves dynamics (actual velocity, stuck state).
 
-Example:
-    from src.map_api import MapAPI
-
-    def main():
-        map_api = MapAPI()
-        start_pos = (5.0, 5.0)
-        target_pos = (15.0, 20.0)
-        dt = 1.0  # 1 second simulation step
-
-        # Standard Initialization
-        drone = Drone(map_api, "drone__01", start_pos)
-        scout = Scout(map_api, "scout__01", start_pos)
-        rover = Rover(map_api, "rover__01", start_pos)
-
-        # 1. Perceive surroundings (Only Drone and Scout have perception)
-        drone.perceive()
-        scout.perceive()
-
-        # 2. Step towards destination inside a simulation loop
-        while True:
-            # Move Drone
-            d_reached, forced_recharge = drone.step_towards(target_pos[0], target_pos[1], dt)
-            
-            # Move Scout
-            s_reached, was_stuck, stuck_pos = scout.step_towards(target_pos[0], target_pos[1], dt)
-            
-            # Move Rover
-            r_reached, r_stuck = rover.step_towards(target_pos[0], target_pos[1], dt)
-            
-            if d_reached and s_reached and r_reached:
-                print("All robots arrived!")
-                break
-
-    if __name__ == "__main__":
-        main()
+Typical loop
+------------
+1. Call `.perceive()` for sensing agents (drone/scout).
+2. Ask a planner/governor for headings.
+3. Call `.step_towards(heading)` on each robot.
+4. Feed returned telemetry back into map/state estimators.
 """
 
 import math
-from typing import Tuple, List, Optional
+from typing import List, Tuple
 
 from src.map_api import MapAPI
 
 
 class RobotMovementBase:
-    """Base class for handling robot behavior constraints."""
+    """
+    Common robot interface and motion integration logic.
 
-    def __init__(self, map_api: MapAPI, robot_id: str, robot_type: str, start_pos: Tuple[float, float]):
+    Parameters
+    ----------
+    map_api : MapAPI
+        External simulator/environment API.
+    robot_id : str
+        Unique identifier used by `MapAPI`.
+    robot_type : str
+        Semantic role ("drone", "scout", "rover"), used by planning logic.
+    start_pos : tuple[float, float]
+        Initial continuous position.
+    """
+
+    def __init__(
+            self, map_api: MapAPI, robot_id: str, robot_type: str, start_pos: Tuple[float, float]
+    ):
         self.map_api = map_api
-        self.robot_id = robot_id
+
         self.robot_type = robot_type
         self.x, self.y = start_pos
-        self.total_time_spent = 0.0
+
+        self.robot_id = robot_id
         self.map_api.register_robot(self.robot_id, self.robot_type)
 
-        # ---  temporary
+        # Simulation integration timestep (seconds).
         self.dt = 0.2
+        # Commanded nominal speed (cells/s); subclasses override.
         self.speed = 1.0
 
     def perceive(self):
-        """Standard perception, can be filtered by subclasses."""
+        """
+        Sense nearby cells and return a normalized feature dict.
+
+        Returns
+        -------
+        dict[tuple[int, int], dict[str, float | None]]
+            Mapping from integer cell coordinates to observed features.
+            Keys include: "texture", "color", "slope", "uphill_angle".
+        """
         feature = {}
         obs = self.map_api.perceive(self.robot_id, (self.x, self.y))
         for ob in obs:
@@ -92,13 +83,31 @@ class RobotMovementBase:
         return feature
 
     def step_towards(self, heading):
+        """
+        Execute one movement step using a commanded heading.
+
+        Parameters
+        ----------
+        heading : float
+            Command orientation in radians.
+
+        Returns
+        -------
+        dict[str, float | bool]
+            Telemetry payload consumed by mapping/learning modules:
+            - `heading`
+            - `is_stuck`
+            - `command_velocity`
+            - `actual_velocity`
+        """
         result = self.map_api.step(
             robot_id=self.robot_id,
             position=(self.x, self.y),
             command_velocity=self.speed,
-            command_orientation=heading
+            command_orientation=heading,
         )
-        # Update physical coordinates
+
+        # Integrate physical position from returned actual velocity.
         self.x += result.actual_velocity * self.dt * math.cos(heading)
         self.y += result.actual_velocity * self.dt * math.sin(heading)
 
@@ -114,78 +123,122 @@ class RobotMovementBase:
 
 class Drone(RobotMovementBase):
     """
-    Drone constraints:
+    Aerial robot with battery lifecycle and forced recharge behavior.
+
+    Constraints
+    -----------
     - Speed: 1.0 cells/s
-    - TOF (Time Of Flight): 5 minutes (300 seconds)
-    - Solar recharging time: 1 hr (3600 seconds)
-    - Data: Collects only "observable" terrain data.
+    - Battery drains during movement, charges when paused
+    - When battery reaches 0, drone enters recharge mode and must hold position
+
+    Notes
+    -----
+    Battery rates in this implementation are scaled by `dt` both in coefficients
+    and updates to preserve existing simulation behavior.
     """
 
     def __init__(self, map_api: MapAPI, robot_id: str, start_pos: Tuple[float, float]):
         super().__init__(map_api, robot_id, "drone", start_pos)
         self.speed = 1.0
         self._recharging = False
-        self.power_draw = 0.02
-        self.battery_recharge = 0.002
-        self.flight_clock = 0.0
+
+        # Internal battery model parameters.
+        self._power_draw = 0.02  # per second
+        self._battery_recharge = 0.002  # per second
+
         self.recharge_cycles = 0
-        self.battery_state = 1  # 1.0 = fully charged, 0.0 = depleted
+        self.battery_state = 1  # 1.0 = full, 0.0 = empty
 
     @property
     def needs_pause(self) -> bool:
-        """True while the drone must stay grounded (dead battery or mid-recharge)."""
+        """
+        True when the drone should not receive movement commands.
+        """
         return self.battery_state == 0.0 or (
                 self.battery_state < 1.0 and self._recharging
         )
 
     def step_towards(self, heading):
-        # if heading = None the drone must recharge
+        """
+        Step drone motion or recharge cycle.
+
+        Parameters
+        ----------
+        heading : float | None
+            If `None`, drone remains stationary and recharges.
+
+        Returns
+        -------
+        dict[str, float]
+            `{"battery_state": ...}` after applying movement/recharge update.
+        """
+        # No heading means "hold position and recharge".
         if heading is None:
             heading = 0.0
             self.map_api.step(self.robot_id, (self.x, self.y), 0.0, heading)
-            self.battery_state = min(1.0, self.battery_state + (
-                    self.battery_recharge * self.dt))  # Recharge at 0.002 per second of recharge time
+
+            # Recharge while idle.
+            self.battery_state = min(
+                1.0,
+                self.battery_state + (self._battery_recharge * self.dt),
+            )
             if self.battery_state == 1.0:
-                self._recharging = False  # fully recharged, resume flying
+                self._recharging = False  # Fully recharged; can fly again.
             return {"battery_state": self.battery_state}
+
         result = self.map_api.step(
             robot_id=self.robot_id,
             position=(self.x, self.y),
             command_velocity=self.speed,
-            command_orientation=heading
+            command_orientation=heading,
         )
-        # Update physical coordinates
+
+        # Integrate continuous position.
         self.x += result.actual_velocity * self.dt * math.cos(heading)
         self.y += result.actual_velocity * self.dt * math.sin(heading)
-        self.battery_state = max(0.0, self.battery_state - (self.power_draw * self.dt))  # Drain
+
+        # Drain battery during active flight.
+        self.battery_state = max(
+            0.0, self.battery_state - (self._power_draw * self.dt)
+        )
         if self.battery_state == 0.0:
             print("Drone start recharging")
-            self._recharging = True  # just ran out, must land
+            self._recharging = True
+
         return {"battery_state": self.battery_state}
 
 
 class Scout(RobotMovementBase):
     """
-    Scout: Ground vehicle, logs physical terrain data.
+    Ground exploration robot.
+
+    Characteristics
+    ---------------
     - Speed: 0.05 cells/s
-    - Affected by terrain traversal penalties.
-    - Captures stuck events but forces movement through them to continue exploring.
+    - Exposes standard movement telemetry from base class
+    - Keeps local bookkeeping for stuck events and terrain feature logs
     """
 
     def __init__(self, map_api: MapAPI, robot_id: str, start_pos: Tuple[float, float]):
         super().__init__(map_api, robot_id, "scout", start_pos)
         self.speed = 0.05
+
+        # Tracking fields for analysis/metrics.
         self.stuck_cells: List[Tuple[int, int]] = []
         self.stuck_count = 0
-        self.terrain_features = {}  # Stores {"slope": float, "uphill_angle": float} per cell
+        # Arbitrary per-cell feature cache, e.g. {"slope": ..., "uphill_angle": ...}.
+        self.terrain_features = {}
 
 
 class Rover(RobotMovementBase):
     """
-    Rover: Heavy ground vehicle, follows pre-optimized trajectories.
+    Slow, heavy ground robot used for robust target-reaching behavior.
+
+    Characteristics
+    ---------------
     - Speed: 0.01 cells/s
-    - Can get immobilized by stuck events.
-    - Does not `perceive` (runs blindly assuming the path is optimized).
+    - No custom perception override (uses base behavior if invoked)
+    - Holds a coarse status string for mission state handling
     """
 
     def __init__(self, map_api: MapAPI, robot_id: str, start_pos: Tuple[float, float]):

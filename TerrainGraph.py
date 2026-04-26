@@ -127,7 +127,7 @@ class TerrainGraph:
         self.pessimistic_default = pessimistic_default
 
         # Single adjacency dict — base weights, no penalty baked in
-        self._complete_graph: dict[tuple, dict[tuple, float]] = {}
+        self._graph: dict[tuple, dict[tuple, float]] = {}
 
         # Penalty sets — live references read by _PenalizedView
         self._visited_nodes: set[tuple] = set()   # scout avoids re-visiting
@@ -147,15 +147,14 @@ class TerrainGraph:
         coords = (cell.x, cell.y)
         self._cells[coords] = cell
 
-        # Update penalty sets regardless of stuck status
         if cell.is_observed:
             self._observed_nodes.add(coords)
         if cell.is_visited:
             self._visited_nodes.add(coords)
 
-        if coords not in self._complete_graph:
-            self._complete_graph[coords] = {}
-        self._wire_edges(self._complete_graph, cell)
+        if coords not in self._graph:
+            self._graph[coords] = {}
+        self._wire_edges(self._graph, cell)
 
     def update_cell(self, cell: CellData) -> None:
         """
@@ -172,8 +171,8 @@ class TerrainGraph:
         if cell.is_visited:
             self._visited_nodes.add(coords)
 
-        if coords in self._complete_graph:
-            self._rewire_edges(self._complete_graph, cell)
+        if coords in self._graph:
+            self._rewire_edges(self._graph, cell)
         else:
             self.add_cell(cell)
 
@@ -188,7 +187,7 @@ class TerrainGraph:
         if coords in self._cells:
             # Cell's is_stuck flag is already True; _traversability will
             # return _STUCK_TRAVERSABILITY — just rewire to reflect this.
-            self._rewire_edges(self._complete_graph, self._cells[coords])
+            self._rewire_edges(self._graph, self._cells[coords])
 
     def get_graph(self, agent: Literal["rover", "scout", "drone"]):
         """
@@ -203,18 +202,18 @@ class TerrainGraph:
         are visible immediately without calling get_graph again.
         """
         if agent == "rover":
-            return self._complete_graph
+            return self._graph
 
         if agent == "scout":
             return _PenalizedView(
-                self._complete_graph,
+                self._graph,
                 self._visited_nodes,
                 self.revisit_penalty_scout,
             )
 
         if agent == "drone":
             return _PenalizedView(
-                self._complete_graph,
+                self._graph,
                 self._observed_nodes,
                 self.revisit_penalty_drone,
             )
@@ -295,11 +294,13 @@ def _edge_weight(
     """
     Directed edge cost from src to dst.
 
-        w = (1 / effective_trav(dst)) × slope_factor(src→dst) × diagonal_mult
+        w = α* (1 / effective_trav(dst)) × (1-α) * slope_factor(src→dst) × diagonal_mult
 
     effective_trav(dst) drives the base cost; slope_factor accounts for
     whether the agent is heading uphill, downhill, or across the slope.
     """
+    alfa= 0.7
+
     trav = _traversability(dst, pessimistic_default)
     trav = max(trav, 1e-3)  # guard against zero
 
@@ -312,7 +313,7 @@ def _edge_weight(
     slope_f = max(slope_f, 1e-3)  # guard against zero
 
     diagonal_mult = SQRT2 if diagonal else 1.0
-    return (1.0 / trav) * (0.5* slope_f) * diagonal_mult
+    return (1.0 / trav) * slope_f * diagonal_mult
 
 
 def _traversability(cell: CellData, pessimistic_default: float) -> float:
@@ -357,7 +358,6 @@ def _directional_slope_factor(
         slope: float,
         uphill_angle: float,
         movement_orientation: float,
-        *,
         uphill_penalty: float = 1.0,
         downhill_boost: float = 0.2,
         slope_max_degrees: float = 30.0,

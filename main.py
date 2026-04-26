@@ -8,8 +8,8 @@ from src.map_api import MapAPI
 
 def main(map):
     map_api = get_map_api("generated_maps/" + map + ".csv")
-    start_pos = (4, 34)
-    target = (4, 35)
+    start_pos = (10, 1)
+    target = (40, 37)
     drone = Drone(map_api , "drone", start_pos)
     scout = Scout(map_api, "scout", start_pos)
     rover = Rover(map_api, "rover", start_pos)
@@ -83,4 +83,4 @@ def get_map_api(csv_path):
 
 
 if __name__ == "__main__":
-    main(map="map_002_seed2")
+    main(map="map_013_seed13")
