@@ -47,7 +47,7 @@ class TerrainPredictor:
             Model for continuous traversability prediction.
         gpc : GaussianProcessClassifier
             Model for binary stuck classification.
-        scaler : StandardScaler
+        _scaler_trav : StandardScaler
             Feature normalization fitted on visited-cell training features.
         _model_fitted : bool
             True once the traversability model has been fitted at least once.
@@ -55,7 +55,8 @@ class TerrainPredictor:
             True only when classifier has enough class diversity to train.
         """
         self._build_models()
-        self.scaler = StandardScaler()
+        self._scaler_trav = StandardScaler()
+        self._scaler_stuck = StandardScaler()
         self._model_fitted = False
         self._stuck_model_ready = False
 
@@ -88,14 +89,17 @@ class TerrainPredictor:
         if not visited_cells:
             return
 
-        x_train = self._extract_features(visited_cells)
-        x_train = self.scaler.fit_transform(x_train)
+        x_train_trav = self._extract_trav_features(visited_cells)
+        x_train_trav = self._scaler_trav.fit_transform(x_train_trav)
+
+        x_train_stuck = self._extract_stuck_features(visited_cells)
+        x_train_stuck = self._scaler_stuck.fit_transform(x_train_stuck)
 
         y_trav = np.array([c.real_traversability for c in visited_cells], dtype=float)
         y_stuck = np.array([c.is_stuck for c in visited_cells], dtype=int)
 
-        self._fit_traversability_model(x_train, y_trav)
-        self._fit_stuck_model(x_train, y_stuck)
+        self._fit_traversability_model(x_train_trav, y_trav)
+        self._fit_stuck_model(x_train_stuck, y_stuck)
         self._model_fitted = True
 
         self.update_prediction(observed_cells)
@@ -119,11 +123,11 @@ class TerrainPredictor:
         if not self._model_fitted or not observed_cells:
             return
 
-        x_pred = self.scaler.transform(self._extract_features(observed_cells))
-
-        self._predict_traversability(observed_cells, x_pred)
+        x_pred_trav = self._scaler_trav.transform(self._extract_trav_features(observed_cells))
+        self._predict_traversability(observed_cells, x_pred_trav)
         if self._stuck_model_ready:
-            self._predict_stuck(observed_cells, x_pred)
+            x_pred_stuck = self._scaler_stuck.transform(self._extract_stuck_features(observed_cells))
+            self._predict_stuck(observed_cells, x_pred_trav)
 
     # ── Private: model construction ───────────────────────────────────────────
 
@@ -253,7 +257,32 @@ class TerrainPredictor:
     # ── Private: helpers ──────────────────────────────────────────────────────
 
     @staticmethod
-    def _extract_features(cells: list[CellData]) -> np.ndarray:
+    def _extract_trav_features(cells: list[CellData]) -> np.ndarray:
+        """
+        Build feature matrix from cells.
+
+        Parameters
+        ----------
+        cells : list[CellData]
+            Input cells.
+
+        Returns
+        -------
+        np.ndarray
+            Matrix with shape `(n_cells, 4)` and columns:
+            `[texture, color, slope, uphill_angle]`.
+
+        Notes
+        -----
+        This assumes all four features are populated (non-None) for each cell.
+        """
+        return np.array(
+            [[c.texture, c.color] for c in cells],
+            dtype=float,
+        )
+
+    @staticmethod
+    def _extract_stuck_features(cells: list[CellData]) -> np.ndarray:
         """
         Build feature matrix from cells.
 

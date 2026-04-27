@@ -76,6 +76,7 @@ def main(map, revisit_penalty_scout=3.0, revisit_penalty_drone=2.0, live=False):
                             rover_position=(rover.x, rover.y))
 
     print("Done")
+
     plotter.save(map, fps=15)
 
 
@@ -86,4 +87,4 @@ def get_map_api(csv_path):
 
 
 if __name__ == "__main__":
-    main(map="map_092_seed92")
+    main(map="map_013_seed13")
