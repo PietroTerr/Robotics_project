@@ -176,7 +176,7 @@ class TerrainGraph:
         else:
             self.add_cell(cell)
 
-    # just for completeness, not used
+        
     def remove_cell(self, x: int, y: int) -> None:
         """
         Called when a cell is confirmed stuck.

@@ -26,6 +26,7 @@ def main(map, revisit_penalty_scout=3.0, revisit_penalty_drone=2.0, live=False):
     scout_state = AgentState(
         agent=scout,
         goals=[target, start_pos],
+        use_zigzag=True,
     )
     rover_state = AgentState(
         agent=rover,
@@ -51,8 +52,9 @@ def main(map, revisit_penalty_scout=3.0, revisit_penalty_drone=2.0, live=False):
         observations.update(drone.perceive())
 
         movement_information = {}
-        step_rover_result = rover.step_towards(headings["rover"])
-        movement_information[rover.x, rover.y] = step_rover_result
+        if drone_state.finished:
+            step_rover_result = rover.step_towards(headings["rover"])
+            movement_information[rover.x, rover.y] = step_rover_result
         step_scout_result = scout.step_towards(headings["scout"])
         movement_information[scout.x, scout.y] = step_scout_result
         drone.step_towards(headings["drone"])
@@ -84,4 +86,4 @@ def get_map_api(csv_path):
 
 
 if __name__ == "__main__":
-    main(map="map_013_seed13")
+    main(map="map_092_seed92")
