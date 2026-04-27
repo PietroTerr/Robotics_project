@@ -28,7 +28,7 @@ class TerrainMap:
 
     # GP refit is O(n³) — only refit after this many new visited cells.
     # Tune this value to balance prediction accuracy vs. computation cost.
-    REFIT_INTERVAL: int = 5
+    REFIT_INTERVAL: int = 1
 
     def __init__(self, width: int = 50, height: int = 50,revisit_penalty_scout =3.0, revisit_penalty_drone=2.0) -> None:
         """
