@@ -176,6 +176,7 @@ class TerrainGraph:
         else:
             self.add_cell(cell)
 
+    # just for completeness, not used
     def remove_cell(self, x: int, y: int) -> None:
         """
         Called when a cell is confirmed stuck.
@@ -294,12 +295,11 @@ def _edge_weight(
     """
     Directed edge cost from src to dst.
 
-        w = α* (1 / effective_trav(dst)) × (1-α) * slope_factor(src→dst) × diagonal_mult
+        w = (1 / effective_trav(dst)) × * slope_factor(src→dst) × diagonal_mult
 
     effective_trav(dst) drives the base cost; slope_factor accounts for
     whether the agent is heading uphill, downhill, or across the slope.
     """
-    alfa= 0.7
 
     trav = _traversability(dst, pessimistic_default)
     trav = max(trav, 1e-3)  # guard against zero

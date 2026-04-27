@@ -6,18 +6,18 @@ from real_time_plot import MapPlotter
 from src.map_api import MapAPI
 
 
-def main(map):
+def main(map, revisit_penalty_scout=3.0, revisit_penalty_drone=2.0, live=False):
     map_api = get_map_api("generated_maps/" + map + ".csv")
     start_pos = (10, 1)
     target = (40, 37)
-    drone = Drone(map_api , "drone", start_pos)
+    drone = Drone(map_api, "drone", start_pos)
     scout = Scout(map_api, "scout", start_pos)
     rover = Rover(map_api, "rover", start_pos)
 
     ten_seconds = 1 / scout.dt * 10
     sim_logger = SimulationLogger(log_interval=ten_seconds)
-    plotter = MapPlotter(grid_size=50)
-    terrain_map = TerrainMap()
+    plotter = MapPlotter(grid_size=50, live=live)
+    terrain_map = TerrainMap(revisit_penalty_scout=revisit_penalty_scout, revisit_penalty_drone=revisit_penalty_drone)
 
     drone_state = AgentState(
         agent=drone,
@@ -69,7 +69,8 @@ def main(map):
             "agents": agents_positions
         }
         plotter.update(snapshot["grid"], governor.agents)
-        sim_logger.log_step(step=step,simulation_time = step * scout.dt, drone_position=(drone.x, drone.y), scout_position=(scout.x, scout.y),
+        sim_logger.log_step(step=step, simulation_time=step * scout.dt, drone_position=(drone.x, drone.y),
+                            scout_position=(scout.x, scout.y),
                             rover_position=(rover.x, rover.y))
 
     print("Done")

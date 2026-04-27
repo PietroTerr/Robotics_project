@@ -16,7 +16,7 @@ class AgentState:
     goal_index: int = 0                 # Which goal is currently targeted
     current_step: tuple = field(default=None)  # Next cell the agent is heading to
     terminal: bool = False              # If True, signals simulation end on goal reached
-
+    finished: bool = False
     def __post_init__(self):
         # current_step starts as None — A* is run on the very first call
         # to get_headings() rather than driving straight toward the goal.
@@ -28,6 +28,8 @@ class AgentState:
 
     def advance_goal(self):
         """Move to the next goal, cycling back to 0 when the list is exhausted."""
+        if self.goal_index == len(self.goals) - 1:
+            self.finished = True
         self.goal_index = (self.goal_index + 1) % len(self.goals)
 
 
