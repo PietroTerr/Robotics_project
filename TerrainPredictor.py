@@ -127,7 +127,7 @@ class TerrainPredictor:
         self._predict_traversability(observed_cells, x_pred_trav)
         if self._stuck_model_ready:
             x_pred_stuck = self._scaler_stuck.transform(self._extract_stuck_features(observed_cells))
-            self._predict_stuck(observed_cells, x_pred_trav)
+            self._predict_stuck(observed_cells, x_pred_stuck)
 
     # ── Private: model construction ───────────────────────────────────────────
 
