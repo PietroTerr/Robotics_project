@@ -1,20 +1,28 @@
 """
 TerrainGraph
 ============
-Maintains two directed, weighted adjacency graphs over the explored terrain:
-
-    visited_graph   nodes: is_visited=True cells   weights: real traversability
-    observed_graph  nodes: is_observed=True cells   weights: GP estimate
-
-Stuck cells are excluded from both graphs.
-Edges are 8-directional; diagonals carry a ×√2 cost multiplier.
+Maintains a single directed, weighted adjacency graph over the full terrain grid.
+All cells (unobserved, observed, visited, stuck) live in one graph; traversability
+is resolved by a confidence-weighted formula so agents naturally prefer well-known,
+safe terrain without needing separate graph structures.
 
 Edge weight formula (src → dst):
-    w = (1 / traversability(dst)) × slope_factor(src→dst) × diagonal_mult
+    w = (1 / effective_trav(dst)) × slope_factor(src→dst) × diagonal_mult
 
-The revisit penalty is NOT baked into the stored weights — it is applied
-lazily by _PenalizedView so the same underlying graph can be shared
-by multiple agents with different penalty values.
+effective_trav resolution (in priority order):
+    1. is_stuck                       → 0.01  (passable but extremely costly)
+    2. real_traversability available  → real_traversability  (visited ground truth)
+    3. is_observed                    → confidence * estimate + (1-confidence) * pessimistic_default
+                                        then multiplied by (1 - stuck_probability_estimate)
+    4. unobserved                     → pessimistic_default  (tunable, default 0.3)
+
+Agent views (via _PenalizedView):
+    rover  → raw complete_graph, no penalty   (confidence weights guide preference)
+    scout  → complete_graph, visited cells penalised  (encourages new exploration)
+    drone  → complete_graph, observed cells penalised (encourages new scanning)
+
+The revisit penalty is NOT baked into stored weights — applied lazily by
+_PenalizedView so the same graph is safely shared across agents.
 """
 
 from __future__ import annotations
@@ -28,6 +36,7 @@ from CellData import CellData
 
 SQRT2 = math.sqrt(2)
 _DIRECTIONS = [(dx, dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1) if (dx, dy) != (0, 0)]
+_STUCK_TRAVERSABILITY = 0.01   # kept passable so scout/drone are never hard-blocked
 
 
 # ── Live penalty view ─────────────────────────────────────────────────────────
@@ -39,18 +48,18 @@ class _PenalizedView:
     belongs to `penalty_nodes`.
 
     No data is ever copied — the view reads directly from the live graph
-    and the live penalty set, so any subsequent add/remove/update calls
-    are immediately reflected.
+    and the live penalty set, so any subsequent add/update calls are
+    immediately reflected.
 
     The interface is intentionally minimal: only the operations that
     standard A* implementations need are exposed.
     """
 
     def __init__(
-        self,
-        graph: dict[tuple, dict[tuple, float]],
-        penalty_nodes: set[tuple],
-        penalty: float,
+            self,
+            graph: dict[tuple, dict[tuple, float]],
+            penalty_nodes: set[tuple],
+            penalty: float,
     ) -> None:
         self._graph = graph
         self._penalty_nodes = penalty_nodes
@@ -80,8 +89,7 @@ class _PenalizedView:
         """
         neighbors: dict[tuple, float] = self._graph[node]
 
-        # Fast path — avoids dict creation in the common case where a node
-        # has no penalised neighbours (early-exploration phase).
+        # Fast path — avoids dict creation when no penalised neighbours present.
         if self._penalty_nodes.isdisjoint(neighbors):
             return neighbors
 
@@ -95,124 +103,118 @@ class _PenalizedView:
 
 class TerrainGraph:
     """
-    Incremental directed graph manager.
+    Incremental directed graph manager over a single unified graph.
 
     Public API
     ----------
-    add_cell(cell)          called when a cell becomes observed or visited
-    update_cell(cell)       called when GP estimates are refreshed, or
-                            when a cell transitions observed → visited
-    remove_cell(x, y)       called when a cell is discovered to be stuck
-    get_graph(agent)        returns a live graph view for the given agent
+    add_cell(cell)      called when a cell's state changes (observed / visited)
+    update_cell(cell)   called after GP refresh or observed→visited transition
+    remove_cell(x, y)   called when a cell is stuck: rewires with 0.01 trav
+                        (does NOT delete — keeps graph fully connected)
+    get_graph(agent)    returns a live graph view for the given agent
     """
 
     def __init__(
-        self,
-        revisit_penalty_scout: float = 3.0,
-        revisit_penalty_drone: float = 2.0,
+            self,
+            grid_dimension: tuple = (50, 50),
+            revisit_penalty_scout: float = 3.0,
+            revisit_penalty_drone: float = 2.0,
+            pessimistic_default: float = 0.5,
     ) -> None:
+        self._grid_dimension = grid_dimension
         self.revisit_penalty_scout = revisit_penalty_scout
         self.revisit_penalty_drone = revisit_penalty_drone
+        self.pessimistic_default = pessimistic_default
 
-        # adjacency dicts — base weights, no penalty
-        self._visited_graph:  dict[tuple, dict[tuple, float]] = {}
-        self._observed_graph: dict[tuple, dict[tuple, float]] = {}
+        # Single adjacency dict — base weights, no penalty baked in
+        self._graph: dict[tuple, dict[tuple, float]] = {}
 
-        # penalty sets — live references read by _PenalizedView
-        self._visited_nodes:  set[tuple] = set()   # scout avoids these
-        self._observed_nodes: set[tuple] = set()   # drone  avoids these
+        # Penalty sets — live references read by _PenalizedView
+        self._visited_nodes: set[tuple] = set()   # scout avoids re-visiting
+        self._observed_nodes: set[tuple] = set()  # drone  avoids re-scanning
 
-        # cell registry for traversability / slope lookups
+        # Cell registry for traversability / slope lookups
         self._cells: dict[tuple, CellData] = {}
 
     # ── Public API ────────────────────────────────────────────────────────────
 
     def add_cell(self, cell: CellData) -> None:
         """
-        Register a newly observed or visited cell.
-        Stuck cells are silently ignored.
+        Register or refresh a cell in the graph.
+        Stuck cells are kept with _STUCK_TRAVERSABILITY so agents always
+        have a route out; they are just very expensive to traverse.
         """
-        if cell.is_stuck:
-            return
-
         coords = (cell.x, cell.y)
         self._cells[coords] = cell
 
         if cell.is_observed:
             self._observed_nodes.add(coords)
-            if coords not in self._observed_graph:
-                self._observed_graph[coords] = {}
-            self._wire_edges(self._observed_graph, cell, use_real=False)
-
         if cell.is_visited:
             self._visited_nodes.add(coords)
-            if coords not in self._visited_graph:
-                self._visited_graph[coords] = {}
-            self._wire_edges(self._visited_graph, cell, use_real=True)
+
+        if coords not in self._graph:
+            self._graph[coords] = {}
+        self._wire_edges(self._graph, cell)
 
     def update_cell(self, cell: CellData) -> None:
         """
-        Recompute all edges touching `cell`:
-          - called after every GP prediction refresh (observed graph)
-          - called when a cell transitions from observed → visited
-          - automatically removes the cell if it is stuck
+        Recompute all edges touching `cell` after a state change:
+          - GP estimate refresh
+          - observed → visited transition
+          - stuck discovery (rewires with 0.01 trav, does NOT delete)
         """
-        if cell.is_stuck:
-            self.remove_cell(cell.x, cell.y)
-            return
-
         coords = (cell.x, cell.y)
         self._cells[coords] = cell
 
-        if cell.is_observed and coords in self._observed_graph:
-            self._rewire_edges(self._observed_graph, cell, use_real=False)
-
+        if cell.is_observed:
+            self._observed_nodes.add(coords)
         if cell.is_visited:
-            if coords not in self._visited_graph:
-                # First time this cell is marked visited — add it
-                self.add_cell(cell)
-            else:
-                self._rewire_edges(self._visited_graph, cell, use_real=True)
+            self._visited_nodes.add(coords)
 
+        if coords in self._graph:
+            self._rewire_edges(self._graph, cell)
+        else:
+            self.add_cell(cell)
+
+        
     def remove_cell(self, x: int, y: int) -> None:
         """
-        Purge a stuck cell and every edge that references it.
+        Called when a cell is confirmed stuck.
+        Rewires its edges with _STUCK_TRAVERSABILITY instead of deleting,
+        so the graph stays fully connected and agents already inside the
+        cell can always find a way out.
         """
         coords = (x, y)
-        for graph in (self._visited_graph, self._observed_graph):
-            if coords in graph:
-                del graph[coords]
-            for neighbours in graph.values():
-                neighbours.pop(coords, None)
-
-        self._visited_nodes.discard(coords)
-        self._observed_nodes.discard(coords)
-        self._cells.pop(coords, None)
+        if coords in self._cells:
+            # Cell's is_stuck flag is already True; _traversability will
+            # return _STUCK_TRAVERSABILITY — just rewire to reflect this.
+            self._rewire_edges(self._graph, self._cells[coords])
 
     def get_graph(self, agent: Literal["rover", "scout", "drone"]):
         """
         Return a live graph view suitable for the requested agent.
 
-            rover  → raw visited_graph,  no penalty
-            scout  → observed_graph,     visited  cells penalised  (already traversed)
-            drone  → observed_graph,     observed cells penalised  (already scanned)
+            rover  → raw complete_graph, no penalty
+                     (confidence weighting already encodes visited preference)
+            scout  → complete_graph, visited cells penalised
+            drone  → complete_graph, observed cells penalised
 
         The returned object is a live view: mutations from add/update/remove
         are visible immediately without calling get_graph again.
         """
         if agent == "rover":
-            return self._observed_graph
+            return self._graph
 
         if agent == "scout":
             return _PenalizedView(
-                self._observed_graph,
+                self._graph,
                 self._visited_nodes,
                 self.revisit_penalty_scout,
             )
 
         if agent == "drone":
             return _PenalizedView(
-                self._observed_graph,
+                self._graph,
                 self._observed_nodes,
                 self.revisit_penalty_drone,
             )
@@ -222,10 +224,9 @@ class TerrainGraph:
     # ── Private: edge wiring ──────────────────────────────────────────────────
 
     def _wire_edges(
-        self,
-        graph: dict[tuple, dict[tuple, float]],
-        cell: CellData,
-        use_real: bool,
+            self,
+            graph: dict[tuple, dict[tuple, float]],
+            cell: CellData,
     ) -> None:
         """
         Connect `cell` to every existing neighbour in `graph`.
@@ -237,38 +238,39 @@ class TerrainGraph:
             diagonal = nb_coords[0] != cell.x and nb_coords[1] != cell.y
 
             # outgoing: cell → neighbour
-            graph[coords][nb_coords] = _edge_weight(cell, nb_cell, diagonal, use_real)
-
+            graph[coords][nb_coords] = _edge_weight(
+                cell, nb_cell, diagonal, self.pessimistic_default
+            )
             # incoming: neighbour → cell
-            graph[nb_coords][coords] = _edge_weight(nb_cell, cell, diagonal, use_real)
+            graph[nb_coords][coords] = _edge_weight(
+                nb_cell, cell, diagonal, self.pessimistic_default
+            )
 
     def _rewire_edges(
-        self,
-        graph: dict[tuple, dict[tuple, float]],
-        cell: CellData,
-        use_real: bool,
+            self,
+            graph: dict[tuple, dict[tuple, float]],
+            cell: CellData,
     ) -> None:
         """
         Clear and recompute all edges touching `cell`.
-        Incoming edges (from neighbours to `cell`) are also refreshed
-        because traversability(dst) changed.
+        Incoming edges are also refreshed because traversability(dst) changed.
         """
         coords = (cell.x, cell.y)
 
         # Remove all outgoing edges from this node
         graph[coords] = {}
 
-        # Remove all incoming edges that point TO this node
+        # Remove all incoming edges pointing TO this node
         for neighbours in graph.values():
             neighbours.pop(coords, None)
 
         # Recompute both directions from scratch
-        self._wire_edges(graph, cell, use_real)
+        self._wire_edges(graph, cell)
 
     def _existing_neighbours(
-        self,
-        cell: CellData,
-        graph: dict,
+            self,
+            cell: CellData,
+            graph: dict,
     ) -> list[tuple[tuple, CellData]]:
         """
         Return (coords, CellData) for the 8-connected neighbours
@@ -285,21 +287,22 @@ class TerrainGraph:
 # ── Module-level weight helpers ───────────────────────────────────────────────
 
 def _edge_weight(
-    src: CellData,
-    dst: CellData,
-    diagonal: bool,
-    use_real: bool,
+        src: CellData,
+        dst: CellData,
+        diagonal: bool,
+        pessimistic_default: float,
 ) -> float:
     """
     Directed edge cost from src to dst.
 
-        w = (1 / trav(dst))  ×  slope_factor(src→dst)  ×  diagonal_mult
+        w = (1 / effective_trav(dst)) × * slope_factor(src→dst) × diagonal_mult
 
-    traversability(dst) drives the base cost; slope_factor accounts for
-    whether the agent is heading uphill, downhill or across the slope.
+    effective_trav(dst) drives the base cost; slope_factor accounts for
+    whether the agent is heading uphill, downhill, or across the slope.
     """
-    trav = _traversability(dst, use_real)
-    trav = max(trav, 1e-3)                           # guard against zero
+
+    trav = _traversability(dst, pessimistic_default)
+    trav = max(trav, 1e-3)  # guard against zero
 
     heading = math.atan2(dst.y - src.y, dst.x - src.x)
     slope_f = _directional_slope_factor(
@@ -307,44 +310,64 @@ def _edge_weight(
         dst.uphill_angle or 0.0,
         heading,
     )
-    slope_f = max(slope_f, 1e-3)                     # guard against zero
+    slope_f = max(slope_f, 1e-3)  # guard against zero
 
     diagonal_mult = SQRT2 if diagonal else 1.0
     return (1.0 / trav) * slope_f * diagonal_mult
 
 
-def _traversability(cell: CellData, use_real: bool) -> float:
+def _traversability(cell: CellData, pessimistic_default: float) -> float:
     """
-    Resolve the traversability value to use for a cell.
+    Resolve effective traversability for edge weight computation.
 
-    Priority:
-      1. real_traversability  (if use_real and ground truth is available)
-      2. traversability_estimate  (GP prediction)
-      3. 0.5  (neutral fallback — model not yet fitted)
+    Priority / formula:
+      1. Stuck cell                    → _STUCK_TRAVERSABILITY (0.01)
+      2. Visited (ground truth)        → real_traversability
+      3. Observed (GP estimate)        → confidence * estimate
+                                          + (1 - confidence) * pessimistic_default
+                                          then × (1 - stuck_probability_estimate)
+      4. Unobserved                    → pessimistic_default
+
+    Note: for observed cells, confidence=0 collapses the formula to
+    pessimistic_default regardless of the raw estimate, so early GP
+    predictions with high uncertainty don't mislead the planner.
     """
-    if use_real and cell.real_traversability is not None:
+    if cell.is_stuck:
+        return _STUCK_TRAVERSABILITY
+
+    # Ground truth available (visited cell)
+    if cell.real_traversability is not None:
         return cell.real_traversability
-    if cell.traversability_estimate is not None:
-        return cell.traversability_estimate
-    return 0.5
+
+    # Observed but not yet visited: confidence-weighted estimate
+    if cell.is_observed:
+        estimate = (
+            cell.traversability_estimate
+            if cell.traversability_estimate is not None
+            else pessimistic_default
+        )
+        trav = cell.confidence * estimate + (1.0 - cell.confidence) * pessimistic_default
+        trav *= (1.0 - cell.stuck_probability_estimate)
+        return max(trav, 1e-3)
+
+    # Unobserved: assume pessimistic default
+    return pessimistic_default
 
 
 def _directional_slope_factor(
-    slope: float,
-    uphill_angle: float,
-    movement_orientation: float,
-    *,
-    uphill_penalty: float = 1.0,
-    downhill_boost: float = 0.2,
-    slope_max_degrees: float = 30.0,
+        slope: float,
+        uphill_angle: float,
+        movement_orientation: float,
+        uphill_penalty: float = 1.0,
+        downhill_boost: float = 0.2,
+        slope_max_degrees: float = 30.0,
 ) -> float:
     """
     Return a scalar in (0, 1.2] that modulates cost based on the
     relationship between the agent's heading and the terrain slope.
 
     Duplicated from TerrainMap to avoid a circular import.
-    If you later extract utilities to terrain_utils.py, both modules
-    should import from there instead.
+    Consider extracting to terrain_utils.py if this diverges.
     """
     ux, uy = math.cos(uphill_angle), math.sin(uphill_angle)
     mx, my = math.cos(movement_orientation), math.sin(movement_orientation)

@@ -5,10 +5,21 @@ import matplotlib.patches as mpatches
 from matplotlib.colors import Normalize, LinearSegmentedColormap
 
 # ── Load ──────────────────────────────────────────────────────────────────────
-CSV_PATH = "map_001_seed42.csv"         
+MAP = "map_092_seed92"
+CSV_MAP = "generated_maps/" + MAP + ".csv"
+PATH_CSV = MAP + "_paths.csv"
 GRID_SIZE = 50
 
-df = pd.read_csv(CSV_PATH)
+# Load map data
+df = pd.read_csv(CSV_MAP)
+
+# Load path data
+try:
+    df_paths = pd.read_csv(PATH_CSV)
+except FileNotFoundError:
+    df_paths = None
+    print(f"Warning: {PATH_CSV} not found. Skipping paths.")
+
 
 def to_grid(col):
     grid = np.full((GRID_SIZE, GRID_SIZE), np.nan)
@@ -18,12 +29,13 @@ def to_grid(col):
             grid[y, x] = row[col]
     return grid
 
+
 traversability = to_grid("traversability")
-slope          = to_grid("slope")
-uphill_angle   = to_grid("uphill_angle")
-stuck_event    = to_grid("stuck_event")   # 0 / 1  (False/True → 0/1 after cast)
-texture        = to_grid("texture")
-color_val      = to_grid("color")
+slope = to_grid("slope")
+uphill_angle = to_grid("uphill_angle")
+stuck_event = to_grid("stuck_event")  # 0 / 1  (False/True → 0/1 after cast)
+texture = to_grid("texture")
+color_val = to_grid("color")
 
 # ── Figure layout ─────────────────────────────────────────────────────────────
 fig, axes = plt.subplots(2, 3, figsize=(18, 12))
@@ -31,6 +43,7 @@ fig.suptitle("Robot Navigation Map — 50 × 50 m", fontsize=16, fontweight="bol
 fig.patch.set_facecolor("#1a1a2e")
 
 LABEL_KW = dict(fontsize=10, color="white", pad=8)
+
 
 # ── Helper ─────────────────────────────────────────────────────────────────────
 def styled_imshow(ax, data, cmap, title, vmin=None, vmax=None, cbar_label=""):
@@ -49,6 +62,7 @@ def styled_imshow(ax, data, cmap, title, vmin=None, vmax=None, cbar_label=""):
     cb.set_label(cbar_label, color="gray", fontsize=8)
     plt.setp(cb.ax.yaxis.get_ticklabels(), color="gray")
     return im
+
 
 # 1 ── Traversability  (green = easy, red = hard) ──────────────────────────────
 cmap_trav = LinearSegmentedColormap.from_list(
@@ -75,11 +89,9 @@ ax_stuck.imshow(stuck_overlay, origin="lower", aspect="equal",
                 alpha=0.9, interpolation="nearest")
 ax_stuck.set_title("④ Stuck Events", **LABEL_KW)
 ax_stuck.tick_params(colors="gray", labelsize=8)
-patch = mpatches.Patch(color="#e63946", label="stuck")
-ax_stuck.legend(handles=[patch], loc="lower right",
-                fontsize=8, facecolor="#222", labelcolor="white")
 for spine in ax_stuck.spines.values():
     spine.set_edgecolor("#444")
+# Note: Legend is generated later to combine with the path lines
 
 # 5 ── Texture ─────────────────────────────────────────────────────────────────
 styled_imshow(axes[1, 1], texture, "YlOrBr",
@@ -88,6 +100,38 @@ styled_imshow(axes[1, 1], texture, "YlOrBr",
 # 6 ── Colour value ────────────────────────────────────────────────────────────
 styled_imshow(axes[1, 2], color_val, "viridis",
               "⑥ Colour Value", cbar_label="normalised")
+
+# ── Path Overlay ──────────────────────────────────────────────────────────────
+if df_paths is not None and not df_paths.empty:
+    # High contrast colors for dark theme
+    path_colors = {"drone": "#00e5ff", "scout": "#ff00ff", "rover": "#39ff14"}
+
+    for ax in axes.flat:
+        for robot_id, group in df_paths.groupby("robot_id"):
+            group = group.sort_values("step")
+            color = path_colors.get(robot_id, "white")
+
+            # Plot continuous line
+            ax.plot(group["x"], group["y"], color=color, linewidth=1.5, alpha=0.9, label=robot_id)
+
+            # Plot start (circle) and end (x) markers
+            ax.scatter(group["x"].iloc[0], group["y"].iloc[0], color=color, s=20, marker="o", zorder=3)
+            ax.scatter(group["x"].iloc[-1], group["y"].iloc[-1], color=color, s=35, marker="x", zorder=3)
+
+    # Add general path legend to the first plot
+    axes[0, 0].legend(loc="upper right", fontsize=8, facecolor="#222", labelcolor="white", framealpha=0.8)
+
+# ── Legend Management for Stuck Events ────────────────────────────────────────
+# Combine the path lines with the custom stuck patch
+stuck_patch = mpatches.Patch(color="#e63946", label="stuck")
+handles, labels = ax_stuck.get_legend_handles_labels()
+
+# Deduplicate labels (in case multiple line segments trigger duplicates) and add the stuck patch
+by_label = dict(zip(labels, handles))
+by_label["stuck"] = stuck_patch
+
+ax_stuck.legend(by_label.values(), by_label.keys(), loc="lower right",
+                fontsize=8, facecolor="#222", labelcolor="white", framealpha=0.8)
 
 # ── Grid overlay (cell borders) ───────────────────────────────────────────────
 for ax in axes.flat:
@@ -100,7 +144,8 @@ for ax in axes.flat:
     ax.set_ylabel("y (m)", color="gray", fontsize=8)
 
 plt.tight_layout(rect=[0, 0, 1, 0.97])
-plt.savefig("map_overview.png", dpi=150, bbox_inches="tight",
+
+plt.savefig(CSV_MAP.replace('.csv', '.png'), dpi=150, bbox_inches="tight",
             facecolor=fig.get_facecolor())
 print("Saved → map_overview.png")
 plt.show()

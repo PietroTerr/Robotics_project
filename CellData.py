@@ -1,5 +1,7 @@
+from dataclasses import dataclass
 
 
+@dataclass
 class CellData:
     def __init__(self, x: int, y: int):
         self.x = x
@@ -14,27 +16,13 @@ class CellData:
         self.real_traversability: float | None = None
 
         # ── Layer 2: Derived estimates (output of TerrainPredictor) ───────────
-        self.traversability_estimate: float | None = None
-        self.confidence: float | None = None
+        self.traversability_estimate: float = 0.5
+        self.confidence: float = 0.0
         self.stuck_probability_estimate: float = 0.0
 
         # ── Status flags ──────────────────────────────────────────────────────
         self.is_observed: bool = False
         self.is_visited: bool = False
-
-    def __eq__(self, other: object) -> bool:
-        if isinstance(other, CellData):
-            return self.x == other.x and self.y == other.y
-        return NotImplemented
-
-    def __hash__(self):
-        return hash((self.x, self.y))
-
-    def __repr__(self) -> str:
-        return (
-            f"CellData(x={self.x}, y={self.y}, "
-            f"observed={self.is_observed}, visited={self.is_visited})"
-        )
 
     # ── Setters (auto-update status flags) ────────────────────────────────────
 
@@ -57,6 +45,7 @@ class CellData:
     def set_is_stuck(self, is_stuck: bool) -> None:
         self.is_stuck = is_stuck
         self._refresh_visited()
+
     def set_real_traversability(self, real_traversability: float | None) -> None:
         self.real_traversability = real_traversability
         self._refresh_visited()
