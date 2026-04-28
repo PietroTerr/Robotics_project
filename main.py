@@ -90,7 +90,7 @@ def main(map, live=False):
 
     perceive_calls = drone.method_counts["perceive"] + scout.method_counts["perceive"]
     step_calls = drone.method_counts["step"] + scout.method_counts["step"] + rover.method_counts["step"]
-    stuck_event = rover.get_stuck_events()
+    stuck_event = rover.get_stuck_events_number()
 
     drone_travel = drone.get_travel()
     scout_travel = scout.get_travel()

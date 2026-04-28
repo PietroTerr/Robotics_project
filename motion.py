@@ -258,13 +258,13 @@ class Rover(RobotMovementBase):
     def __init__(self, map_api: MapAPI, robot_id: str, start_pos: Tuple[float, float]):
         super().__init__(map_api, robot_id, "rover", start_pos)
         self.speed = 0.01
-        self.stuck_events = 0
+        self.stuck_cell = set()
 
-    def step(self, heading):
+    def step_towards(self, heading):
         movement_information = super().step_towards(heading)
         if movement_information["is_stuck"]:
-            self.stuck_events += 1
+            self.stuck_cell.add((int(self.x), int(self.y)))
         return movement_information
 
-    def get_stuck_events(self):
-        return self.stuck_events
+    def get_stuck_events_number(self):
+        return self.stuck_cell.__len__()
