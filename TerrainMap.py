@@ -25,9 +25,8 @@ class TerrainMap:
     - GP refits are throttled using `REFIT_INTERVAL` to avoid expensive O(n^3) updates on every step.
     """
 
-    # GP refit is O(n³) — only refit after this many new visited cells.
-    # Tune this value to balance prediction accuracy vs. computation cost.
-    REFIT_INTERVAL: int = 1
+    # GP refit is O(n³) so only refit after this many new visited cells.
+    REFIT_INTERVAL: int = 1 # 1 for max alg performance
 
     def __init__(self, width: int = 50, height: int = 50, revisit_penalty_scout=3.0, revisit_penalty_drone=2.0,
                  pessimistic_default=0.5) -> None:

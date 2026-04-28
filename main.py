@@ -22,16 +22,18 @@ def main(terrain_map,
          live=False
          ):
     map_name = terrain_map
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    map_path = os.path.join(base_dir, "generated_maps", f"{map_name}.csv")
-    map_api = get_map_api(map_path)
+    #base_dir = os.path.dirname(os.path.abspath(__file__))
+    #map_path = os.path.join(base_dir, "generated_maps", f"{map_name}.csv")
+    # map_api = get_map_api(map_path)
+    map_api = get_map_api("generated_maps/" + terrain_map + ".csv")
+
     start_pos = start_pos
     target = target
     drone = Drone(map_api, "drone", start_pos)
     scout = Scout(map_api, "scout", start_pos)
     rover = Rover(map_api, "rover", start_pos)
 
-    ten_seconds = int(1 / scout.dt * 10)
+    ten_seconds = int(1 / scout.dt * 100)
     sim_logger = SimulationLogger(log_interval=ten_seconds)
     plotter = MapPlotter(grid_size=50, live=live)
     terrain_map = TerrainMap(revisit_penalty_scout=revisit_penalty_scout, revisit_penalty_drone=revisit_penalty_drone,
@@ -40,11 +42,12 @@ def main(terrain_map,
     drone_state = AgentState(
         agent=drone,
         goals=[target, start_pos],
-        use_oscillation =True
+
     )
     scout_state = AgentState(
         agent=scout,
-        goals=[target, start_pos]
+        goals=[target, start_pos],
+        use_oscillation=True
     )
     rover_state = AgentState(
         agent=rover,
@@ -120,7 +123,7 @@ def main(terrain_map,
     )
 
     sim_logger.end(
-        map=terrain_map,
+        map=map_name,
         reached_target=reached_target,
         last_distance_from_target=last_distance_from_target,
         time_elapsed=time_elapsed,
@@ -140,11 +143,11 @@ def get_map_api(csv_path):
 
 
 if __name__ == "__main__":
-    terrain_map = "map_013_seed13"
+    terrain_map = "map_092_seed92"
     start = (10, 1)
     target = (40, 37)
-    revisit_penalty_scout: float = 10.0
-    revisit_penalty_drone: float = 10.0
+    revisit_penalty_scout: float = 5.0
+    revisit_penalty_drone: float = 5.0
     pessimistic_default: float = 0.4
     zig_lookahead = 6.0
     zig_width = 10.0

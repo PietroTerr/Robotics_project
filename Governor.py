@@ -42,7 +42,7 @@ class AgentState:
 class Governor:
     def __init__(self, terrain_map: TerrainMap, agents: list[AgentState],
                  zig_lookahead=5.0, zig_width=4.0,
-                 osc_amplitude=0.4, osc_frequency=0.2):
+                 osc_amplitude=0.9, osc_frequency=0.01):
         self.terrain_map = terrain_map
         self.agents: list[AgentState] = agents
         self.done = False
