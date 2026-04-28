@@ -28,7 +28,6 @@ def main(map, live=False):
     scout_state = AgentState(
         agent=scout,
         goals=[target, start_pos],
-        use_zigzag=True,
     )
     rover_state = AgentState(
         agent=rover,
@@ -62,8 +61,7 @@ def main(map, live=False):
 
         # ------ Step ----------
         movement_information = {}
-
-        if drone_state.finished:  # rover wait that drone has done a full journey
+        if headings["rover"] is not None:
             step_rover_result = rover.step_towards(headings["rover"])
             movement_information[rover.x, rover.y] = step_rover_result
 
