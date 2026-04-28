@@ -1,31 +1,32 @@
-import math
-from dataclasses import dataclass, field
-from typing import Any
-
-import networkx as nx
-
-from TerrainMap import TerrainMap
-
 
 # ─── AgentState ───────────────────────────────────────────────────────────────
 
+import math
+from dataclasses import dataclass, field
+from typing import Any
+import networkx as nx
+from TerrainMap import TerrainMap
+
+
 @dataclass
 class AgentState:
-    agent: Any  # Drone, Scout, Rover, or any future agent
-    goals: list[tuple[float, float]]  # Ordered list of waypoints to cycle through
-    goal_index: int = 0  # Which goal is currently targeted
-    current_step: tuple = field(default=None)  # Next cell the agent is heading to
-    terminal: bool = False  # If True, signals simulation end on goal reached
+    agent: Any
+    goals: list[tuple[float, float]]
+    goal_index: int = 0
+    current_step: tuple = field(default=None)
+    terminal: bool = False
     finished: bool = False
 
-    # Zigzag specific fields
+    # Zigzag fields (kept for backward compatibility)
     use_zigzag: bool = False
-    scout_side: int = 1  # -1 for left, 1 for right
-    active_zigzag_wp: tuple = None  # The current "corner" of the zigzag
+    scout_side: int = 1
+    active_zigzag_wp: tuple = None
+
+    # --- New Oscillation Fields ---
+    use_oscillation: bool = False
+    oscillation_step: int = 0
 
     def __post_init__(self):
-        # current_step starts as None — A* is run on the very first call
-        # to get_headings() rather than driving straight toward the goal.
         self.current_step = None
 
     @property
@@ -33,34 +34,85 @@ class AgentState:
         return self.goals[self.goal_index]
 
     def advance_goal(self):
-        """Move to the next goal, cycling back to 0 when the list is exhausted."""
         if self.goal_index == len(self.goals) - 1:
             self.finished = True
         self.goal_index = (self.goal_index + 1) % len(self.goals)
 
 
-# ─── Governor ─────────────────────────────────────────────────────────────────
-
 class Governor:
-
-    def __init__(self, terrain_map: TerrainMap, agents: list[AgentState], zig_lookahead=5.0, zig_width=4.0):
+    def __init__(self, terrain_map: TerrainMap, agents: list[AgentState],
+                 zig_lookahead=5.0, zig_width=4.0,
+                 osc_amplitude=0.4, osc_frequency=0.2):
         self.terrain_map = terrain_map
         self.agents: list[AgentState] = agents
         self.done = False
-
         self.zig_lookahead = zig_lookahead
         self.zig_width = zig_width
 
+        # Oscillation settings (amplitude in radians, frequency in steps)
+        self.osc_amplitude = osc_amplitude
+        self.osc_frequency = osc_frequency
+
     def get_headings(self) -> dict[str, float | None]:
-        """
-        Return a dict mapping each robot_id to its heading (radians) or None.
-        None means the agent should stay still (e.g. drone recharging, or
-        no valid path exists yet).
-        """
         return {
             state.agent.robot_id: self._get_agent_heading(state)
             for state in self.agents
         }
+
+    def _get_agent_heading(self, state: AgentState) -> float | None:
+        if getattr(state.agent, "needs_pause", False):
+            return None
+
+        agent = state.agent
+        current_pos = (agent.x, agent.y)
+
+        # 1. Determine Target
+        target_pos = state.current_goal
+        if state.use_zigzag:
+            target_pos = self._calculate_zigzag_target(state, current_pos)
+
+        # 2. Path Planning (A*)
+        if state.current_step is None or _step_is_finished(current_pos, state.current_step):
+            if _to_cell_coords(current_pos) == _to_cell_coords(state.current_goal):
+                if state.terminal:
+                    self.done = True
+                    return None
+                state.advance_goal()
+                return self._get_agent_heading(state)
+
+            source = _to_cell_coords(current_pos)
+            target = _to_cell_coords(target_pos)
+
+            if source == target:
+                state.current_step = source
+            else:
+                G = _to_networkx(self.terrain_map.terrain_graph.get_graph(agent.robot_type))
+                effective_source = source if source in G else _nearest_valid_source(source, G)
+                if effective_source is None: return None
+
+                try:
+                    path = nx.astar_path(G, source=effective_source, target=target,
+                                         heuristic=lambda a, b: math.hypot(a[0] - b[0], a[1] - b[1]),
+                                         weight="weight")
+                    state.current_step = path[1] if len(path) > 1 else target
+                except (nx.NetworkXNoPath, nx.NodeNotFound):
+                    # Robustness: if zigzag target is unreachable, fall back to main goal
+                    if state.use_zigzag:
+                        state.use_zigzag = False
+                        return self._get_agent_heading(state)
+                    return None
+
+        # 3. Calculate Heading and apply Oscillation
+        heading = _get_direction_to_cell(current_pos, state.current_step)
+
+        if state.use_oscillation:
+            state.oscillation_step += 1
+            # Adds a small sinusoidal offset to the heading
+            heading += self.osc_amplitude * math.sin(self.osc_frequency * state.oscillation_step)
+
+        return heading
+
+    # ... (remaining helper functions like _calculate_zigzag_target, _to_cell_coords, etc. remain the same)
 
     # ─── Private ──────────────────────────────────────────────────────────────
 
