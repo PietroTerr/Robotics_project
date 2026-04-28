@@ -98,20 +98,22 @@ def main(map, live=False):
 
     last_distance_from_target = math.sqrt((rover.x - target[0]) ** 2 + (rover.y - target[1]) ** 2)
 
-    sim_logger.end(reached_target=reached_target,
-                   last_distance_from_target=last_distance_from_target,
-                   time_elapsed=time_elapsed,
-                   drone_travel=drone_travel, scout_travel=scout_travel, rover_travel=rover_travel,
-                   perceive_calls=perceive_calls, step_calls=step_calls,
-                   stuck_events=stuck_event,
-                   )
+    sim_logger.end(
+        map=map,
+        reached_target=reached_target,
+        last_distance_from_target=last_distance_from_target,
+        time_elapsed=time_elapsed,
+        drone_travel=drone_travel, scout_travel=scout_travel, rover_travel=rover_travel,
+        perceive_calls=perceive_calls, step_calls=step_calls,
+        stuck_events=stuck_event,
+    )
 
     return reached_target, last_distance_from_target, time_elapsed, drone_travel, scout_travel, rover_travel, perceive_calls, step_calls, stuck_event
 
 
 def get_map_api(csv_path):
     print("Loading MapAPI & Components...")
-    map_api = MapAPI(terrain=csv_path,time_step=0.90)
+    map_api = MapAPI(terrain=csv_path, time_step=0.90)
     return map_api
 
 

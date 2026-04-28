@@ -134,11 +134,18 @@ ax_stuck.legend(by_label.values(), by_label.keys(), loc="lower right",
                 fontsize=8, facecolor="#222", labelcolor="white", framealpha=0.8)
 
 # ── Grid overlay (cell borders) ───────────────────────────────────────────────
+tick_values = list(range(0, GRID_SIZE + 1, 5))
+
 for ax in axes.flat:
-    ax.set_xticks(np.arange(-0.5, GRID_SIZE, 5), minor=False)
-    ax.set_yticks(np.arange(-0.5, GRID_SIZE, 5), minor=False)
-    ax.set_xticklabels(range(0, GRID_SIZE + 1, 5), fontsize=7, color="gray")
-    ax.set_yticklabels(range(0, GRID_SIZE + 1, 5), fontsize=7, color="gray")
+    # 1. Set the physical locations of the ticks
+    ax.set_xticks(tick_values)
+    ax.set_yticks(tick_values)
+
+    # 2. Set the labels (and styling) for those specific locations
+    ax.set_xticklabels(tick_values, fontsize=7, color="gray")
+    ax.set_yticklabels(tick_values, fontsize=7, color="gray")
+
+    # 3. Add grid and labels
     ax.grid(which="major", color="#333", linewidth=0.4)
     ax.set_xlabel("x (m)", color="gray", fontsize=8)
     ax.set_ylabel("y (m)", color="gray", fontsize=8)
