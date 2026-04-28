@@ -11,11 +11,11 @@ from TerrainMap import TerrainMap
 
 @dataclass
 class AgentState:
-    agent: Any                          # Drone, Scout, Rover, or any future agent
-    goals: list[tuple[float, float]]    # Ordered list of waypoints to cycle through
-    goal_index: int = 0                 # Which goal is currently targeted
+    agent: Any  # Drone, Scout, Rover, or any future agent
+    goals: list[tuple[float, float]]  # Ordered list of waypoints to cycle through
+    goal_index: int = 0  # Which goal is currently targeted
     current_step: tuple = field(default=None)  # Next cell the agent is heading to
-    terminal: bool = False              # If True, signals simulation end on goal reached
+    terminal: bool = False  # If True, signals simulation end on goal reached
     finished: bool = False
 
     # Zigzag specific fields
@@ -43,10 +43,13 @@ class AgentState:
 
 class Governor:
 
-    def __init__(self, terrain_map: TerrainMap, agents: list[AgentState]):
+    def __init__(self, terrain_map: TerrainMap, agents: list[AgentState], zig_lookahead=5.0, zig_width=4.0):
         self.terrain_map = terrain_map
         self.agents: list[AgentState] = agents
         self.done = False
+
+        self.zig_lookahead = zig_lookahead
+        self.zig_width = zig_width
 
     def get_headings(self) -> dict[str, float | None]:
         """
@@ -128,22 +131,19 @@ class Governor:
         agent_vec = (current_pos[0] - origin[0], current_pos[1] - origin[1])
         scout_proj = agent_vec[0] * axis[0] + agent_vec[1] * axis[1]
 
-        zig_lookahead = 5.0
-        zig_width = 4.0
-
         # Determine if we need a new zigzag waypoint
         needs_new_wp = (state.active_zigzag_wp is None or
                         math.hypot(current_pos[0] - state.active_zigzag_wp[0],
                                    current_pos[1] - state.active_zigzag_wp[1]) < 1.5)
 
         if needs_new_wp:
-            base_proj = min(scout_proj + zig_lookahead, dist)
+            base_proj = min(scout_proj + self.zig_lookahead, dist)
 
             # Logic for choosing side based on unobserved cells
             left_unobs = 0
             right_unobs = 0
-            for d_dist in range(2, int(zig_lookahead * 1.5) + 1):
-                for w in range(1, int(zig_width)):
+            for d_dist in range(2, int(self.zig_lookahead * 1.5) + 1):
+                for w in range(1, int(self.zig_width)):
                     for side_mult, counter in [(-1, "left"), (1, "right")]:
                         tx = int(current_pos[0] + d_dist * axis[0] + side_mult * w * perp[0])
                         ty = int(current_pos[1] + d_dist * axis[1] + side_mult * w * perp[1])
@@ -163,12 +163,14 @@ class Governor:
             else:
                 state.scout_side *= -1  # Flip side if equal or no info
 
-            raw_x = origin[0] + base_proj * axis[0] + state.scout_side * zig_width * perp[0]
-            raw_y = origin[1] + base_proj * axis[1] + state.scout_side * zig_width * perp[1]
+            raw_x = origin[0] + base_proj * axis[0] + state.scout_side * self.zig_width * perp[0]
+            raw_y = origin[1] + base_proj * axis[1] + state.scout_side * self.zig_width * perp[1]
 
             state.active_zigzag_wp = (max(0.0, min(49.0, raw_x)), max(0.0, min(49.0, raw_y)))
 
         return state.active_zigzag_wp
+
+
 # ─── Geometry / Graph Helpers ─────────────────────────────────────────────────
 
 def _step_is_finished(position: tuple, goal: tuple) -> bool:

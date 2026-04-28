@@ -8,7 +8,7 @@ from real_time_plot import MapPlotter
 from src.map_api import MapAPI
 
 
-def main(map, revisit_penalty_scout=3.0, revisit_penalty_drone=2.0, live=False):
+def main(map, live=False):
     map_api = get_map_api("generated_maps/" + map + ".csv")
     start_pos = (10, 1)
     target = (40, 37)
@@ -19,16 +19,16 @@ def main(map, revisit_penalty_scout=3.0, revisit_penalty_drone=2.0, live=False):
     ten_seconds = int(1 / scout.dt * 10)
     sim_logger = SimulationLogger(log_interval=ten_seconds)
     plotter = MapPlotter(grid_size=50, live=live)
-    terrain_map = TerrainMap(revisit_penalty_scout=revisit_penalty_scout, revisit_penalty_drone=revisit_penalty_drone)
+    terrain_map = TerrainMap()
 
     drone_state = AgentState(
         agent=drone,
-        goals=[target, start_pos],
+        goals=[target, start_pos]
     )
     scout_state = AgentState(
         agent=scout,
         goals=[target, start_pos],
-        use_zigzag=False,
+        use_zigzag=True,
     )
     rover_state = AgentState(
         agent=rover,
@@ -63,7 +63,7 @@ def main(map, revisit_penalty_scout=3.0, revisit_penalty_drone=2.0, live=False):
         # ------ Step ----------
         movement_information = {}
 
-        if scout_state.finished:  # rover wait that drone has done a full journey
+        if drone_state.finished:  # rover wait that drone has done a full journey
             step_rover_result = rover.step_towards(headings["rover"])
             movement_information[rover.x, rover.y] = step_rover_result
 
@@ -103,7 +103,7 @@ def main(map, revisit_penalty_scout=3.0, revisit_penalty_drone=2.0, live=False):
                    time_elapsed=time_elapsed,
                    drone_travel=drone_travel, scout_travel=scout_travel, rover_travel=rover_travel,
                    perceive_calls=perceive_calls, step_calls=step_calls,
-                   stuck_calls=stuck_event,
+                   stuck_events=stuck_event,
                    )
 
     return reached_target, last_distance_from_target, time_elapsed, drone_travel, scout_travel, rover_travel, perceive_calls, step_calls, stuck_event
@@ -111,7 +111,7 @@ def main(map, revisit_penalty_scout=3.0, revisit_penalty_drone=2.0, live=False):
 
 def get_map_api(csv_path):
     print("Loading MapAPI & Components...")
-    map_api = MapAPI(terrain=csv_path, rng_seed=42, time_step=0.90)
+    map_api = MapAPI(terrain=csv_path,time_step=0.90)
     return map_api
 
 
