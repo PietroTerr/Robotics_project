@@ -1,3 +1,5 @@
+import math
+
 from Governor import Governor, AgentState
 from SimulationLogger import SimulationLogger
 from TerrainMap import TerrainMap
@@ -14,7 +16,7 @@ def main(map, revisit_penalty_scout=3.0, revisit_penalty_drone=2.0, live=False):
     scout = Scout(map_api, "scout", start_pos)
     rover = Rover(map_api, "rover", start_pos)
 
-    ten_seconds = 1 / scout.dt * 10
+    ten_seconds = int(1 / scout.dt * 10)
     sim_logger = SimulationLogger(log_interval=ten_seconds)
     plotter = MapPlotter(grid_size=50, live=live)
     terrain_map = TerrainMap(revisit_penalty_scout=revisit_penalty_scout, revisit_penalty_drone=revisit_penalty_drone)
@@ -26,7 +28,7 @@ def main(map, revisit_penalty_scout=3.0, revisit_penalty_drone=2.0, live=False):
     scout_state = AgentState(
         agent=scout,
         goals=[target, start_pos],
-        use_zigzag=True,
+        use_zigzag=False,
     )
     rover_state = AgentState(
         agent=rover,
@@ -42,19 +44,29 @@ def main(map, revisit_penalty_scout=3.0, revisit_penalty_drone=2.0, live=False):
     step = 0
     while True:
         step += 1
+        time_elapsed = step * scout.dt
+
         # -- Get heading for each agent
         headings = governor.get_headings()
         if governor.done:
+            reached_target = True
+            break
+        if time_elapsed > 100000:
+            reached_target = False
             break
 
+        # ------ Perceive ----------
         observations = {}
         observations.update(scout.perceive())
         observations.update(drone.perceive())
 
+        # ------ Step ----------
         movement_information = {}
-        if drone_state.finished:
+
+        if scout_state.finished:  # rover wait that drone has done a full journey
             step_rover_result = rover.step_towards(headings["rover"])
             movement_information[rover.x, rover.y] = step_rover_result
+
         step_scout_result = scout.step_towards(headings["scout"])
         movement_information[scout.x, scout.y] = step_scout_result
         drone.step_towards(headings["drone"])
@@ -71,19 +83,37 @@ def main(map, revisit_penalty_scout=3.0, revisit_penalty_drone=2.0, live=False):
             "agents": agents_positions
         }
         plotter.update(snapshot["grid"], governor.agents)
-        sim_logger.log_step(step=step, simulation_time=step * scout.dt, drone_position=(drone.x, drone.y),
+        sim_logger.log_step(step=step, simulation_time=time_elapsed, drone_position=(drone.x, drone.y),
                             scout_position=(scout.x, scout.y),
                             rover_position=(rover.x, rover.y))
-
-    print("Done")
     plotter.save(map, fps=15)
+
+    perceive_calls = drone.method_counts["perceive"] + scout.method_counts["perceive"]
+    step_calls = drone.method_counts["step"] + scout.method_counts["step"] + rover.method_counts["step"]
+    stuck_event = rover.get_stuck_events()
+
+    drone_travel = drone.get_travel()
+    scout_travel = scout.get_travel()
+    rover_travel = rover.get_travel()
+
+    last_distance_from_target = math.sqrt((rover.x - target[0]) ** 2 + (rover.y - target[1]) ** 2)
+
+    sim_logger.end(reached_target=reached_target,
+                   last_distance_from_target=last_distance_from_target,
+                   time_elapsed=time_elapsed,
+                   drone_travel=drone_travel, scout_travel=scout_travel, rover_travel=rover_travel,
+                   perceive_calls=perceive_calls, step_calls=step_calls,
+                   stuck_calls=stuck_event,
+                   )
+
+    return reached_target, last_distance_from_target, time_elapsed, drone_travel, scout_travel, rover_travel, perceive_calls, step_calls, stuck_event
 
 
 def get_map_api(csv_path):
     print("Loading MapAPI & Components...")
-    map_api = MapAPI(terrain=csv_path, rng_seed=42)
+    map_api = MapAPI(terrain=csv_path, rng_seed=42, time_step=0.90)
     return map_api
 
 
 if __name__ == "__main__":
-    main(map="map_092_seed92")
+    main(map="map_013_seed13")

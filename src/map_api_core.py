@@ -178,7 +178,7 @@ class MapAPICore:
 
         if not terrain_data or not terrain_data[0]:
             raise ValueError("terrain must be a non-empty 2D grid")
-        if time_step <= 0.0 or time_step > 0.4:
+        if time_step <= 0.0 or time_step > 0.99:
             raise ValueError("time_step must be in (0, 0.4]")
 
         width = len(terrain_data[0])

@@ -57,9 +57,12 @@ class RobotMovementBase:
         self.map_api.register_robot(self.robot_id, self.robot_type)
 
         # Simulation integration timestep (seconds).
-        self.dt = 0.2
+        self.dt = 0.90
         # Commanded nominal speed (cells/s); subclasses override.
         self.speed = 1.0
+
+        self.method_counts = {"step": 0, "perceive": 0}  # map_api.get_method_counts()
+        self.path = [(self.x, self.y)]
 
     def perceive(self):
         """
@@ -73,6 +76,8 @@ class RobotMovementBase:
         """
         feature = {}
         obs = self.map_api.perceive(self.robot_id, (self.x, self.y))
+        self.method_counts["perceive"] += 1
+
         for ob in obs:
             feature[(ob.x, ob.y)] = {
                 "texture": ob.features.get("texture"),
@@ -106,10 +111,12 @@ class RobotMovementBase:
             command_velocity=self.speed,
             command_orientation=heading,
         )
-
+        self.method_counts["step"] += 1
         # Integrate physical position from returned actual velocity.
         self.x += result.actual_velocity * self.dt * math.cos(heading)
         self.y += result.actual_velocity * self.dt * math.sin(heading)
+
+        self.path.append((self.x, self.y))
 
         movement_information = {
             "heading": heading,
@@ -117,8 +124,23 @@ class RobotMovementBase:
             "command_velocity": self.speed,
             "actual_velocity": result.actual_velocity,
         }
-
         return movement_information
+
+    def get_travel(self):
+        """
+        Calculate total travel distance from the path history.
+
+        Returns
+        -------
+        float
+            Total distance traveled along the path.
+        """
+        total_distance = 0.0
+        for i in range(1, len(self.path)):
+            x1, y1 = self.path[i - 1]
+            x2, y2 = self.path[i]
+            total_distance += math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
+        return total_distance
 
 
 class Drone(RobotMovementBase):
@@ -176,6 +198,7 @@ class Drone(RobotMovementBase):
         if heading is None:
             heading = 0.0
             self.map_api.step(self.robot_id, (self.x, self.y), 0.0, heading)
+            self.method_counts["step"] += 1
 
             # Recharge while idle.
             self.battery_state = min(
@@ -186,16 +209,7 @@ class Drone(RobotMovementBase):
                 self._recharging = False  # Fully recharged; can fly again.
             return {"battery_state": self.battery_state}
 
-        result = self.map_api.step(
-            robot_id=self.robot_id,
-            position=(self.x, self.y),
-            command_velocity=self.speed,
-            command_orientation=heading,
-        )
-
-        # Integrate continuous position.
-        self.x += result.actual_velocity * self.dt * math.cos(heading)
-        self.y += result.actual_velocity * self.dt * math.sin(heading)
+        super().step_towards(heading)
 
         # Drain battery during active flight.
         self.battery_state = max(
@@ -244,4 +258,13 @@ class Rover(RobotMovementBase):
     def __init__(self, map_api: MapAPI, robot_id: str, start_pos: Tuple[float, float]):
         super().__init__(map_api, robot_id, "rover", start_pos)
         self.speed = 0.01
-        self.status = "OPERATIONAL"
+        self.stuck_events = 0
+
+    def step(self, heading):
+        movement_information = super().step_towards(heading)
+        if movement_information["is_stuck"]:
+            self.stuck_events += 1
+        return movement_information
+
+    def get_stuck_events(self):
+        return self.stuck_events
