@@ -119,7 +119,7 @@ class TerrainGraph:
             grid_dimension: tuple = (50, 50),
             revisit_penalty_scout: float = 3.0,
             revisit_penalty_drone: float = 2.0,
-            pessimistic_default: float = 0.1,
+            pessimistic_default: float = 0.5,
     ) -> None:
         self._grid_dimension = grid_dimension
         self.revisit_penalty_scout = revisit_penalty_scout
