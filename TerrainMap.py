@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import math
@@ -30,7 +29,8 @@ class TerrainMap:
     # Tune this value to balance prediction accuracy vs. computation cost.
     REFIT_INTERVAL: int = 1
 
-    def __init__(self, width: int = 50, height: int = 50,revisit_penalty_scout =3.0, revisit_penalty_drone=2.0, penality_default = 0.5) -> None:
+    def __init__(self, width: int = 50, height: int = 50, revisit_penalty_scout=3.0, revisit_penalty_drone=2.0,
+                 pessimistic_default=0.5) -> None:
         """
         Initialize map storage, predictor, and planning graph.
 
@@ -46,7 +46,9 @@ class TerrainMap:
         self.height = height
         self.grid_size = (self.width, self.height)
         self.terrain_predictor = TerrainPredictor()
-        self.terrain_graph = TerrainGraph(revisit_penalty_scout =revisit_penalty_scout, revisit_penalty_drone=revisit_penalty_drone, pessimistic_default= penality_default)
+        self.terrain_graph = TerrainGraph(revisit_penalty_scout=revisit_penalty_scout,
+                                          revisit_penalty_drone=revisit_penalty_drone,
+                                          pessimistic_default=pessimistic_default)
 
         # Throttle counter: number of new visited cells since the last GP refit
         self._new_visited_since_refit: int = 0
@@ -65,6 +67,7 @@ class TerrainMap:
             for y in range(self.height):
                 self.grid[(x, y)] = CellData(x, y)
                 self.terrain_graph.add_cell(self.grid[(x, y)])
+
     # ── Cell access ───────────────────────────────────────────────────────────
 
     def get_cell(self, x: int, y: int) -> CellData:
@@ -273,13 +276,13 @@ class TerrainMap:
 # ── Module-level utilities ────────────────────────────────────────────────────
 
 def _directional_slope_factor(
-    slope: float,
-    uphill_angle: float,
-    movement_orientation: float,
-    *,
-    uphill_penalty: float = 1.0,
-    downhill_boost: float = 0.2,
-    slope_max_degrees: float = 30.0,
+        slope: float,
+        uphill_angle: float,
+        movement_orientation: float,
+        *,
+        uphill_penalty: float = 1.0,
+        downhill_boost: float = 0.2,
+        slope_max_degrees: float = 30.0,
 ) -> float:
     """
     Compute direction-aware slope multiplier for commanded velocity normalization.
@@ -312,7 +315,7 @@ def _directional_slope_factor(
     """
     ux, uy = math.cos(uphill_angle), math.sin(uphill_angle)
     mx, my = math.cos(movement_orientation), math.sin(movement_orientation)
-    alignment = ux * mx + uy * my                            # dot product ∈ [-1, 1]
+    alignment = ux * mx + uy * my  # dot product ∈ [-1, 1]
     slope_norm = _clamp(slope / slope_max_degrees, 0.0, 1.0)
     signed_grade = slope_norm * alignment
 

@@ -8,10 +8,20 @@ from real_time_plot import MapPlotter
 from src.map_api import MapAPI
 
 
-def main(map, live=False):
-    map_api = get_map_api("generated_maps/" + map + ".csv")
-    start_pos = (10, 1)
-    target = (40, 37)
+def main(terrain_map,
+         start_pos: tuple[int, int],
+         target: tuple[int, int],
+         step_limit=100000,
+         revisit_penalty_scout: float = 3.0,
+         revisit_penalty_drone: float = 2.0,
+         pessimistic_default: float = 0.1,
+         zig_lookahead=5.0,
+         zig_width=4.0,
+         live=False
+         ):
+    map_api = get_map_api("generated_maps/" + terrain_map + ".csv")
+    start_pos = start_pos
+    target = target
     drone = Drone(map_api, "drone", start_pos)
     scout = Scout(map_api, "scout", start_pos)
     rover = Rover(map_api, "rover", start_pos)
@@ -19,7 +29,8 @@ def main(map, live=False):
     ten_seconds = int(1 / scout.dt * 10)
     sim_logger = SimulationLogger(log_interval=ten_seconds)
     plotter = MapPlotter(grid_size=50, live=live)
-    terrain_map = TerrainMap()
+    terrain_map = TerrainMap(revisit_penalty_scout=revisit_penalty_scout, revisit_penalty_drone=revisit_penalty_drone,
+                             pessimistic_default=pessimistic_default)
 
     drone_state = AgentState(
         agent=drone,
@@ -28,15 +39,15 @@ def main(map, live=False):
     scout_state = AgentState(
         agent=scout,
         goals=[target, start_pos],
-        use_zigzag = True
+        use_zigzag=True
     )
     rover_state = AgentState(
         agent=rover,
         goals=[target],
         terminal=True,
     )
-
-    governor = Governor(terrain_map, [drone_state, scout_state, rover_state])
+    governor = Governor(terrain_map, [drone_state, scout_state, rover_state], zig_lookahead=zig_lookahead,
+                        zig_width=zig_width)
 
     sim_logger.start(total_steps=None,
                      start=start_pos,
@@ -45,14 +56,14 @@ def main(map, live=False):
     while True:
         step += 1
         time_elapsed = step * scout.dt
+        if time_elapsed > step_limit:
+            reached_target = False
+            break
 
         # -- Get heading for each agent
         headings = governor.get_headings()
         if governor.done:
             reached_target = True
-            break
-        if time_elapsed > 100000:
-            reached_target = False
             break
 
         # ------ Perceive ----------
@@ -62,7 +73,7 @@ def main(map, live=False):
 
         # ------ Step ----------
         movement_information = {}
-        if headings["rover"] is not None:
+        if drone_state.finished:
             step_rover_result = rover.step_towards(headings["rover"])
             movement_information[rover.x, rover.y] = step_rover_result
 
@@ -85,7 +96,7 @@ def main(map, live=False):
         sim_logger.log_step(step=step, simulation_time=time_elapsed, drone_position=(drone.x, drone.y),
                             scout_position=(scout.x, scout.y),
                             rover_position=(rover.x, rover.y))
-    plotter.save(map, fps=15)
+    plotter.save(terrain_map, fps=15)
 
     perceive_calls = drone.method_counts["perceive"] + scout.method_counts["perceive"]
     step_calls = drone.method_counts["step"] + scout.method_counts["step"] + rover.method_counts["step"]
@@ -98,7 +109,7 @@ def main(map, live=False):
     last_distance_from_target = math.sqrt((rover.x - target[0]) ** 2 + (rover.y - target[1]) ** 2)
 
     sim_logger.end(
-        map=map,
+        map=terrain_map,
         reached_target=reached_target,
         last_distance_from_target=last_distance_from_target,
         time_elapsed=time_elapsed,
@@ -117,4 +128,14 @@ def get_map_api(csv_path):
 
 
 if __name__ == "__main__":
-    main(map="map_013_seed13")
+    terrain_map = "map_013_seed13"
+    start = (10, 1)
+    target = (40, 37)
+    revisit_penalty_scout: float = 3.0
+    revisit_penalty_drone: float = 2.0
+    pessimistic_default: float = 0.5
+    zig_lookahead = 5.0
+    zig_width = 4.0
+    main(terrain_map=terrain_map, start_pos=start, target=target, step_limit=100000,
+         revisit_penalty_scout=revisit_penalty_scout, revisit_penalty_drone=revisit_penalty_drone,
+         pessimistic_default=pessimistic_default, zig_lookahead=zig_lookahead, zig_width=zig_width, live=False)

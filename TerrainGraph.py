@@ -36,7 +36,7 @@ from CellData import CellData
 
 SQRT2 = math.sqrt(2)
 _DIRECTIONS = [(dx, dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1) if (dx, dy) != (0, 0)]
-_STUCK_TRAVERSABILITY = 0.0001   # kept passable so scout/drone are never hard-blocked
+_STUCK_TRAVERSABILITY = 0.000001   # kept passable so scout/drone are never hard-blocked
 
 
 # ── Live penalty view ─────────────────────────────────────────────────────────
@@ -321,7 +321,7 @@ def _traversability(cell: CellData, pessimistic_default: float) -> float:
     Resolve effective traversability for edge weight computation.
 
     Priority / formula:
-      1. Stuck cell                    → _STUCK_TRAVERSABILITY (0.01)
+      1. Stuck cell                    → _STUCK_TRAVERSABILITY
       2. Visited (ground truth)        → real_traversability
       3. Observed (GP estimate)        → confidence * estimate
                                           + (1 - confidence) * pessimistic_default

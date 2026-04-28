@@ -7,7 +7,7 @@ from datetime import datetime
 class SimulationLogger:
     """Handles structured logging for a simulation"""
 
-    def __init__(self, log_interval=100, log_level=logging.INFO):
+    def __init__(self, log_interval=1000, log_level=logging.INFO):
         self.logger = logging.getLogger(self.__class__.__name__)
         self.logger.setLevel(log_level)
 
@@ -109,7 +109,7 @@ class SimulationLogger:
 
         if self.step_count > 0:
             lines.append(f"  • Avg per step: {total_time / self.step_count * 1000:.2f}ms")
-
+        lines.append("-" * 20)
         for key, value in final_metrics.items():
             clean_key = key.replace('_', ' ').title()
             lines.append(f"  • {clean_key}: {self._format_value(value)}")
