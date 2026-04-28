@@ -1,4 +1,7 @@
 import csv
+from collections import defaultdict
+from pathlib import Path
+
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
@@ -108,6 +111,7 @@ class MapPlotter:
                 writer.writerow(["step", "robot_id", "x", "y"])
                 writer.writerows(self._path_log)
             print(f"Saved {len(self._path_log)} rows → {csv_path}")
+            self._save_trajectory_plot(path)
             return
 
         # ── Live mode: save video ─────────────────────────────────────────────
@@ -142,6 +146,41 @@ class MapPlotter:
             print(f"FFmpeg unavailable — saved as GIF → {gif_path}")
 
         plt.close(save_fig)
+
+    def _save_trajectory_plot(self, path: str):
+        base_path = Path(path).with_suffix("")
+        plot_path = str(base_path) + "_trajectories.png"
+
+        agent_paths: dict[str, list[tuple[int, int]]] = defaultdict(list)
+        for _, robot_id, x, y in self._path_log:
+            agent_paths[robot_id].append((x, y))
+
+        if not agent_paths:
+            print("No trajectory data to plot.")
+            return
+
+        fig, ax = plt.subplots(figsize=(8, 8))
+        ax.set_aspect("equal")
+        ax.set_xlim(-0.5, self.grid_size - 0.5)
+        ax.set_ylim(-0.5, self.grid_size - 0.5)
+        ax.set_title("Agent Trajectories")
+        ax.set_xlabel("X")
+        ax.set_ylabel("Y")
+
+        color_cycle = cycle(self._PALETTE)
+        for robot_id, path_points in agent_paths.items():
+            xs, ys = zip(*path_points)
+            color = next(color_cycle)
+            ax.plot(xs, ys, marker="o", markersize=4, linewidth=1.5, color=color, label=robot_id)
+            ax.plot(xs[0], ys[0], marker="s", color=color, markersize=8, label=f"{robot_id} start")
+            ax.plot(xs[-1], ys[-1], marker="X", color=color, markersize=10, label=f"{robot_id} end")
+
+        ax.legend(loc="upper right", fontsize="small")
+        ax.grid(True, linestyle="--", alpha=0.3)
+        fig.tight_layout()
+        fig.savefig(plot_path, dpi=200)
+        plt.close(fig)
+        print(f"Saved trajectory plot → {plot_path}")
 
     # ── Private helpers (live mode only) ──────────────────────────────────────
 

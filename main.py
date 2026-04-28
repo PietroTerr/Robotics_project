@@ -1,11 +1,15 @@
 import math
+from pathlib import Path
 
 from Governor import Governor, AgentState
 from SimulationLogger import SimulationLogger
 from TerrainMap import TerrainMap
+import cost_function_calculator
 from motion import Drone, Scout, Rover
 from real_time_plot import MapPlotter
 from src.map_api import MapAPI
+
+BASE_DIR = Path(__file__).resolve().parent
 
 
 def main(map, live=False):
@@ -98,6 +102,16 @@ def main(map, live=False):
 
     last_distance_from_target = math.sqrt((rover.x - target[0]) ** 2 + (rover.y - target[1]) ** 2)
 
+    single_run_score = cost_function_calculator.compute_run_cost(
+        total_time=time_elapsed,
+        stuck_events=stuck_event,
+        final_distance=last_distance_from_target,
+    )
+    print(
+        f"Single-run score: {single_run_score:.2f} "
+        f"(T={time_elapsed:.2f}, stuck={stuck_event}, dist={last_distance_from_target:.2f})"
+    )
+
     sim_logger.end(
         map=map,
         reached_target=reached_target,
@@ -113,7 +127,10 @@ def main(map, live=False):
 
 def get_map_api(csv_path):
     print("Loading MapAPI & Components...")
-    map_api = MapAPI(terrain=csv_path, time_step=0.90)
+    csv_path = Path(csv_path)
+    if not csv_path.is_absolute():
+        csv_path = BASE_DIR / csv_path
+    map_api = MapAPI(terrain=str(csv_path), time_step=0.90)
     return map_api
 
 
