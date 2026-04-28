@@ -56,3 +56,28 @@ zig_width = 4.0
   • Perceive Calls: 222222
   • Step Calls: 332103
   • Stuck Events: 4
+
+---
+
+start = (10, 1)
+target = (40, 37)
+revisit_penalty_scout: float = 3.0
+revisit_penalty_drone: float = 2.0
+pessimistic_default: float = 0.5
+zig_lookahead = 5.0
+zig_width = 4.0
+
+  ![alt text](<map plot results/map_013_seed13_2.png>)
+🛑 SIMULATION FINISHED: Completed
+  • Total steps: 72144
+  • Total time:  393.14s
+  • Avg per step: 5.45ms
+  • Reached Target: True
+  • Last Distance From Target: 0.0471
+  • Time Elapsed: 64930.5000
+  • Drone Travel: 5841.0000
+  • Scout Travel: 649.3082
+  • Rover Travel: 53.6234
+  • Perceive Calls: 144288
+  • Step Calls: 215765
+  • Stuck Events: 10
