@@ -1,4 +1,5 @@
 import math
+import os
 
 from Governor import Governor, AgentState
 from SimulationLogger import SimulationLogger
@@ -19,7 +20,9 @@ def main(terrain_map,
          zig_width=4.0,
          live=False
          ):
-    map_api = get_map_api("generated_maps/" + terrain_map + ".csv")
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    map_path = os.path.join(base_dir, "generated_maps", f"{terrain_map}.csv")
+    map_api = get_map_api(map_path)
     start_pos = start_pos
     target = target
     drone = Drone(map_api, "drone", start_pos)
@@ -131,11 +134,11 @@ if __name__ == "__main__":
     terrain_map = "map_013_seed13"
     start = (10, 1)
     target = (40, 37)
-    revisit_penalty_scout: float = 3.0
-    revisit_penalty_drone: float = 2.0
-    pessimistic_default: float = 0.5
-    zig_lookahead = 5.0
-    zig_width = 4.0
+    revisit_penalty_scout: float = 10.0
+    revisit_penalty_drone: float = 10.0
+    pessimistic_default: float = 0.05
+    zig_lookahead = 6.0
+    zig_width = 10.0
     main(terrain_map=terrain_map, start_pos=start, target=target, step_limit=100000,
          revisit_penalty_scout=revisit_penalty_scout, revisit_penalty_drone=revisit_penalty_drone,
          pessimistic_default=pessimistic_default, zig_lookahead=zig_lookahead, zig_width=zig_width, live=False)
