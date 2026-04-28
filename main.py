@@ -28,6 +28,7 @@ def main(map, live=False):
     scout_state = AgentState(
         agent=scout,
         goals=[target, start_pos],
+        use_zigzag = True
     )
     rover_state = AgentState(
         agent=rover,

@@ -30,7 +30,7 @@ class TerrainMap:
     # Tune this value to balance prediction accuracy vs. computation cost.
     REFIT_INTERVAL: int = 1
 
-    def __init__(self, width: int = 50, height: int = 50,revisit_penalty_scout =3.0, revisit_penalty_drone=2.0) -> None:
+    def __init__(self, width: int = 50, height: int = 50,revisit_penalty_scout =3.0, revisit_penalty_drone=2.0, penality_default = 0.5) -> None:
         """
         Initialize map storage, predictor, and planning graph.
 
@@ -46,7 +46,7 @@ class TerrainMap:
         self.height = height
         self.grid_size = (self.width, self.height)
         self.terrain_predictor = TerrainPredictor()
-        self.terrain_graph = TerrainGraph(revisit_penalty_scout =3.0, revisit_penalty_drone=2.0)
+        self.terrain_graph = TerrainGraph(revisit_penalty_scout =revisit_penalty_scout, revisit_penalty_drone=revisit_penalty_drone, pessimistic_default= penality_default)
 
         # Throttle counter: number of new visited cells since the last GP refit
         self._new_visited_since_refit: int = 0
