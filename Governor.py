@@ -112,60 +112,6 @@ class Governor:
 
         return heading
 
-    # ... (remaining helper functions like _calculate_zigzag_target, _to_cell_coords, etc. remain the same)
-
-    # ─── Private ──────────────────────────────────────────────────────────────
-
-    def _get_agent_heading(self, state: AgentState) -> float | None:
-        if getattr(state.agent, "needs_pause", False):
-            return None
-
-        agent = state.agent
-        current_pos = (agent.x, agent.y)
-
-        # 1. Zigzag Waypoint Logic (if enabled)
-        target_pos = state.current_goal
-        if state.use_zigzag:
-            target_pos = self._calculate_zigzag_target(state, current_pos)
-
-        # 2. Replan Check
-        if state.current_step is None or _step_is_finished(current_pos, state.current_step):
-
-            # Check if current goal (the ultimate destination) is reached
-            if _to_cell_coords(current_pos) == _to_cell_coords(state.current_goal):
-                if state.terminal:
-                    self.done = True
-                    return None
-                state.advance_goal()
-                return self._get_agent_heading(state)  # Re-run for new goal
-
-            source = _to_cell_coords(current_pos)
-            target = _to_cell_coords(target_pos)  # Plan toward zigzag point or goal
-
-            if source == target:
-                state.current_step = source
-                return _get_direction_to_cell(current_pos, state.current_step)
-
-            G = _to_networkx(self.terrain_map.terrain_graph.get_graph(agent.robot_type))
-            effective_source = source if source in G else _nearest_valid_source(source, G)
-
-            if effective_source is None:
-                state.current_step = None
-                return None
-
-            try:
-                path = nx.astar_path(
-                    G, source=effective_source, target=target,
-                    heuristic=lambda a, b: math.hypot(a[0] - b[0], a[1] - b[1]),
-                    weight="weight"
-                )
-                state.current_step = path[1] if len(path) > 1 else target
-            except (nx.NodeNotFound, nx.NetworkXNoPath, nx.exception.NetworkXError):
-                state.current_step = None
-                return None
-
-        return _get_direction_to_cell(current_pos, state.current_step)
-
     def _calculate_zigzag_target(self, state: AgentState, current_pos: tuple) -> tuple:
         """Computes the intermediate zigzag waypoint based on unobserved terrain."""
         # Setup geometry

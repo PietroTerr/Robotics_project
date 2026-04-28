@@ -39,12 +39,12 @@ def main(terrain_map,
 
     drone_state = AgentState(
         agent=drone,
-        goals=[target, start_pos]
+        goals=[target, start_pos],
+        use_oscillation =True
     )
     scout_state = AgentState(
         agent=scout,
-        goals=[target, start_pos],
-        use_zigzag=True
+        goals=[target, start_pos]
     )
     rover_state = AgentState(
         agent=rover,
@@ -145,9 +145,9 @@ if __name__ == "__main__":
     target = (40, 37)
     revisit_penalty_scout: float = 10.0
     revisit_penalty_drone: float = 10.0
-    pessimistic_default: float = 0.05
+    pessimistic_default: float = 0.4
     zig_lookahead = 6.0
     zig_width = 10.0
     main(terrain_map=terrain_map, start_pos=start, target=target, step_limit=100000,
          revisit_penalty_scout=revisit_penalty_scout, revisit_penalty_drone=revisit_penalty_drone,
-         pessimistic_default=pessimistic_default, zig_lookahead=zig_lookahead, zig_width=zig_width, live=False)
+         pessimistic_default=pessimistic_default, zig_lookahead=zig_lookahead, zig_width=zig_width)
