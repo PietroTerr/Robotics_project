@@ -20,8 +20,9 @@ def main(terrain_map,
          zig_width=4.0,
          live=False
          ):
+    map_name = terrain_map
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    map_path = os.path.join(base_dir, "generated_maps", f"{terrain_map}.csv")
+    map_path = os.path.join(base_dir, "generated_maps", f"{map_name}.csv")
     map_api = get_map_api(map_path)
     start_pos = start_pos
     target = target
@@ -99,7 +100,7 @@ def main(terrain_map,
         sim_logger.log_step(step=step, simulation_time=time_elapsed, drone_position=(drone.x, drone.y),
                             scout_position=(scout.x, scout.y),
                             rover_position=(rover.x, rover.y))
-    plotter.save(terrain_map, fps=15)
+    plotter.save(f"{map_name}.mp4", fps=15)
 
     perceive_calls = drone.method_counts["perceive"] + scout.method_counts["perceive"]
     step_calls = drone.method_counts["step"] + scout.method_counts["step"] + rover.method_counts["step"]
