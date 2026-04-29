@@ -3,11 +3,13 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.colors import Normalize, LinearSegmentedColormap
+from pathlib import Path
 
 # ── Load ──────────────────────────────────────────────────────────────────────
+BASE_DIR = Path(__file__).resolve().parent
 MAP = "map_013_seed13"
-CSV_MAP = "generated_maps/" + MAP + ".csv"
-PATH_CSV = MAP + "_paths.csv"
+CSV_MAP = BASE_DIR / "generated_maps" / f"{MAP}.csv"
+PATH_CSV = BASE_DIR / f"{MAP}_paths.csv"
 GRID_SIZE = 50
 
 # Load map data
