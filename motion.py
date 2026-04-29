@@ -48,6 +48,7 @@ class RobotMovementBase:
     def __init__(
             self, map_api: MapAPI, robot_id: str, robot_type: str, start_pos: Tuple[float, float]
     ):
+        self.current_velocity = 0.0
         self.map_api = map_api
 
         self.robot_type = robot_type
@@ -124,6 +125,8 @@ class RobotMovementBase:
             "command_velocity": self.speed,
             "actual_velocity": result.actual_velocity,
         }
+
+        self.current_velocity = result.actual_velocity
         return movement_information
 
     def get_travel(self):
@@ -176,9 +179,9 @@ class Drone(RobotMovementBase):
         """
         True when the drone should not receive movement commands.
         """
-        return self.battery_state == 0.0 or (
-                self.battery_state < 1.0 and self._recharging
-        )
+        return (self.battery_state == 0.0 or
+                (self.battery_state < 1.0 and self._recharging)
+                )
 
     def step_towards(self, heading):
         """
