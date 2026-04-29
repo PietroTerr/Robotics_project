@@ -15,19 +15,11 @@ class AgentState:
     goal_index: int = 0
     current_step: tuple = field(default=None)
     terminal: bool = False
-    finished: bool = False
-
-    # Zigzag fields (kept for backward compatibility)
-    use_zigzag: bool = False
-    scout_side: int = 1
-    active_zigzag_wp: tuple = None
+    finished: bool = False # True when agent has reached final goal
 
     # --- New Oscillation Fields ---
     use_oscillation: bool = False
     oscillation_step: int = 0
-
-    def __post_init__(self):
-        self.current_step = None
 
     @property
     def current_goal(self) -> tuple[float, float]:
@@ -41,13 +33,10 @@ class AgentState:
 
 class Governor:
     def __init__(self, terrain_map: TerrainMap, agents: list[AgentState],
-                 zig_lookahead=5.0, zig_width=4.0,
                  osc_amplitude=0.9, osc_frequency=0.01):
         self.terrain_map = terrain_map
         self.agents: list[AgentState] = agents
-        self.done = False
-        self.zig_lookahead = zig_lookahead
-        self.zig_width = zig_width
+        self.done = False # Terminal agent has reached target
 
         # Oscillation settings (amplitude in radians, frequency in steps)
         self.osc_amplitude = osc_amplitude
@@ -60,7 +49,7 @@ class Governor:
         }
 
     def _get_agent_heading(self, state: AgentState) -> float | None:
-        if getattr(state.agent, "needs_pause", False):
+        if getattr(state.agent, "needs_pause", False): # if agent (in motion) has a "needs_pause" property, and it's True, skip movement
             return None
 
         agent = state.agent
@@ -68,8 +57,6 @@ class Governor:
 
         # 1. Determine Target
         target_pos = state.current_goal
-        if state.use_zigzag:
-            target_pos = self._calculate_zigzag_target(state, current_pos)
 
         # 2. Path Planning (A*)
         if state.current_step is None or _step_is_finished(current_pos, state.current_step):
@@ -86,20 +73,19 @@ class Governor:
             if source == target:
                 state.current_step = source
             else:
-                G = _to_networkx(self.terrain_map.terrain_graph.get_graph(agent.robot_type))
+                # Grab the live graph view directly
+                G = self.terrain_map.terrain_graph.get_graph(agent.robot_type)
                 effective_source = source if source in G else _nearest_valid_source(source, G)
                 if effective_source is None: return None
 
-                try:
-                    path = nx.astar_path(G, source=effective_source, target=target,
-                                         heuristic=lambda a, b: math.hypot(a[0] - b[0], a[1] - b[1]),
-                                         weight="weight")
-                    state.current_step = path[1] if len(path) > 1 else target
-                except (nx.NetworkXNoPath, nx.NodeNotFound):
-                    # Robustness: if zigzag target is unreachable, fall back to main goal
-                    if state.use_zigzag:
-                        state.use_zigzag = False
-                        return self._get_agent_heading(state)
+                # Use the custom A* implementation
+                next_step = astar_graph(G, start=effective_source, goal=target)
+
+                if next_step is not None:
+                    state.current_step = next_step
+                else:
+                    # No path found; hold position and wait for next step.
+                    print("ERROR IN GRAPH SEARCH: No path found from", source, "to", target, "for agent", agent.robot_id)
                     return None
 
         # 3. Calculate Heading and apply Oscillation
@@ -111,63 +97,6 @@ class Governor:
             heading += self.osc_amplitude * math.sin(self.osc_frequency * state.oscillation_step)
 
         return heading
-
-    def _calculate_zigzag_target(self, state: AgentState, current_pos: tuple) -> tuple:
-        """Computes the intermediate zigzag waypoint based on unobserved terrain."""
-        # Setup geometry
-        origin = state.goals[state.goal_index - 1] if state.goal_index > 0 else (0.0, 0.0)
-        goal = state.current_goal
-
-        dx, dy = goal[0] - origin[0], goal[1] - origin[1]
-        dist = math.hypot(dx, dy)
-        if dist == 0: return goal
-
-        axis = (dx / dist, dy / dist)
-        perp = (-axis[1], axis[0])
-
-        # Project agent onto the path axis
-        agent_vec = (current_pos[0] - origin[0], current_pos[1] - origin[1])
-        scout_proj = agent_vec[0] * axis[0] + agent_vec[1] * axis[1]
-
-        # Determine if we need a new zigzag waypoint
-        needs_new_wp = (state.active_zigzag_wp is None or
-                        math.hypot(current_pos[0] - state.active_zigzag_wp[0],
-                                   current_pos[1] - state.active_zigzag_wp[1]) < 1.5)
-
-        if needs_new_wp:
-            base_proj = min(scout_proj + self.zig_lookahead, dist)
-
-            # Logic for choosing side based on unobserved cells
-            left_unobs = 0
-            right_unobs = 0
-            for d_dist in range(2, int(self.zig_lookahead * 1.5) + 1):
-                for w in range(1, int(self.zig_width)):
-                    for side_mult, counter in [(-1, "left"), (1, "right")]:
-                        tx = int(current_pos[0] + d_dist * axis[0] + side_mult * w * perp[0])
-                        ty = int(current_pos[1] + d_dist * axis[1] + side_mult * w * perp[1])
-
-                        if 0 <= tx < 50 and 0 <= ty < 50:
-                            cell = self.terrain_map.grid.get((tx, ty))
-                            if cell is None or not cell.is_observed:
-                                if side_mult == -1:
-                                    left_unobs += 1
-                                else:
-                                    right_unobs += 1
-
-            if left_unobs > right_unobs:
-                state.scout_side = -1
-            elif right_unobs > left_unobs:
-                state.scout_side = 1
-            else:
-                state.scout_side *= -1  # Flip side if equal or no info
-
-            raw_x = origin[0] + base_proj * axis[0] + state.scout_side * self.zig_width * perp[0]
-            raw_y = origin[1] + base_proj * axis[1] + state.scout_side * self.zig_width * perp[1]
-
-            state.active_zigzag_wp = (max(0.0, min(49.0, raw_x)), max(0.0, min(49.0, raw_y)))
-
-        return state.active_zigzag_wp
-
 
 # ─── Geometry / Graph Helpers ─────────────────────────────────────────────────
 
@@ -210,3 +139,49 @@ def _get_direction_to_cell(start: tuple, end: tuple) -> float:
     end_x = end[0] + 0.5
     end_y = end[1] + 0.5
     return math.atan2(end_y - start[1], end_x - start[0])
+
+
+
+import heapq
+import math
+
+
+def astar_graph(graph, start: tuple, goal: tuple):
+    """
+    A custom A* implementation that works directly with the TerrainGraph
+    adjacency dict or _PenalizedView. Returns the NEXT step (coordinate tuple)
+    to take towards the goal, or None if no path is found.
+    """
+    open_heap = [(0, start)]
+    g = {start: 0}
+    came_from = {}
+
+    while open_heap:
+        f, current = heapq.heappop(open_heap)
+
+        if current == goal:
+            # Reconstruct only the first step
+            if current == start:
+                return start
+            while came_from.get(current) != start:
+                current = came_from[current]
+            return current  # next hop only
+
+        # Extract neighbors from the dict or _PenalizedView
+        if current in graph:
+            neighbors = graph[current]
+        else:
+            neighbors = {}
+
+        for nb, weight in neighbors.items():
+            new_g = g[current] + weight
+
+            # If we found a shorter path to the neighbor
+            if new_g < g.get(nb, float('inf')):
+                g[nb] = new_g
+                # Heuristic: Euclidean distance
+                f_score = new_g + math.hypot(nb[0] - goal[0], nb[1] - goal[1])
+                heapq.heappush(open_heap, (f_score, nb))
+                came_from[nb] = current
+
+    return None
