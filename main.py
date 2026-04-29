@@ -1,5 +1,4 @@
 import math
-import os
 
 from Governor import Governor, AgentState
 from SimulationLogger import SimulationLogger
@@ -16,9 +15,7 @@ def main(terrain_map,
          step_limit=100000,
          revisit_penalty_scout: float = 3.0,
          revisit_penalty_drone: float = 2.0,
-         pessimistic_default: float = 0.1,
-         zig_lookahead=5.0,
-         zig_width=4.0,
+         pessimistic_default: float = 0.2,
          live=False
          ):
     map_name = terrain_map
@@ -54,17 +51,15 @@ def main(terrain_map,
         goals=[target],
         terminal=True,
     )
-    governor = Governor(terrain_map, [drone_state, scout_state, rover_state], zig_lookahead=zig_lookahead,
-                        zig_width=zig_width)
+    governor = Governor(terrain_map, [drone_state, scout_state, rover_state])
 
     sim_logger.start(total_steps=None,
                      start=start_pos,
                      target=target, )
-    previous_positions = {
-        drone: (drone.x, drone.y),
-        scout: (scout.x, scout.y),
-        rover: (rover.x, rover.y)
-    }
+
+    distance_to_do =  math.sqrt((scout.x - target[0]) ** 2 + (scout.y - target[1]) ** 2)
+    alfa = 10
+    time_to_wait = alfa * (distance_to_do/scout.speed)
 
     step = 0
     while True:
@@ -87,7 +82,8 @@ def main(terrain_map,
 
         # ------ Step ----------
         movement_information = {}
-        if scout_state.goal_index > 0 or scout_state.finished:
+
+        if time_elapsed>time_to_wait or scout_state.goal_index == 1 or scout_state.finished:
             step_rover_result = rover.step_towards(headings["rover"])
             movement_information[rover.x, rover.y] = step_rover_result
 
@@ -114,11 +110,6 @@ def main(terrain_map,
                             actual_scotu_velocity=movement_information[scout.x, scout.y]["actual_velocity"],
                             actual_rover_velocity=movement_information.get((rover.x, rover.y), {}).get(
                                 "actual_velocity", 0.0),                            )
-        previous_positions = {
-            drone: (drone.x, drone.y),
-            scout: (scout.x, scout.y),
-            rover: (rover.x, rover.y)
-        }
 
     plotter.save(map_name, fps=15)
 
@@ -169,4 +160,4 @@ if __name__ == "__main__":
     zig_width = 10.0
     main(terrain_map=terrain_map, start_pos=start, target=target, step_limit=100000,
          revisit_penalty_scout=revisit_penalty_scout, revisit_penalty_drone=revisit_penalty_drone,
-         pessimistic_default=pessimistic_default, zig_lookahead=zig_lookahead, zig_width=zig_width)
+         pessimistic_default=pessimistic_default)
