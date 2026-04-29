@@ -7,7 +7,6 @@ from TerrainMap import TerrainMap
 from motion import Drone, Scout, Rover
 from real_time_plot import MapPlotter
 from src.map_api import MapAPI
-from scoreFunction import score_single_run
 
 
 def main(terrain_map,
@@ -101,7 +100,7 @@ def main(terrain_map,
         sim_logger.log_step(step=step, simulation_time=time_elapsed, drone_position=(drone.x, drone.y),
                             scout_position=(scout.x, scout.y),
                             rover_position=(rover.x, rover.y))
-    plotter.save(map_name, fps=15)
+    plotter.save(f"{map_name}.mp4", fps=15)
 
     perceive_calls = drone.method_counts["perceive"] + scout.method_counts["perceive"]
     step_calls = drone.method_counts["step"] + scout.method_counts["step"] + rover.method_counts["step"]
@@ -113,12 +112,6 @@ def main(terrain_map,
 
     last_distance_from_target = math.sqrt((rover.x - target[0]) ** 2 + (rover.y - target[1]) ** 2)
 
-    score = score_single_run(
-        total_time=time_elapsed,
-        stuck_events=stuck_event,
-        final_distance=last_distance_from_target
-    )
-
     sim_logger.end(
         map=terrain_map,
         reached_target=reached_target,
@@ -127,10 +120,9 @@ def main(terrain_map,
         drone_travel=drone_travel, scout_travel=scout_travel, rover_travel=rover_travel,
         perceive_calls=perceive_calls, step_calls=step_calls,
         stuck_events=stuck_event,
-        score=score,
     )
 
-    return reached_target, last_distance_from_target, time_elapsed, drone_travel, scout_travel, rover_travel, perceive_calls, step_calls, stuck_event, score
+    return reached_target, last_distance_from_target, time_elapsed, drone_travel, scout_travel, rover_travel, perceive_calls, step_calls, stuck_event
 
 
 def get_map_api(csv_path):
