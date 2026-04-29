@@ -81,3 +81,40 @@ zig_width = 4.0
   • Perceive Calls: 144288
   • Step Calls: 215765
   • Stuck Events: 10
+
+---
+
+scout oscillating
+osc_amplitude=0.9, osc_frequency=0.01
+
+rover strat 
+    alfa = 10
+    time_to_wait = alfa * (distance_to_do/scout.speed)
+
+terrain_map = "map_013_seed13"
+  start = (10, 1)
+  target = (40, 37)
+  revisit_penalty_scout: float = 5.0
+  revisit_penalty_drone: float = 5.0
+  pessimistic_default: float = 0.2
+  zig_lookahead = 6.0
+  zig_width = 10.0
+
+
+
+  🛑 SIMULATION FINISHED: Completed
+  • Total steps: 49915
+  • Total time:  316.89s
+  • Avg per step: 6.35ms
+
+  • Map: map_013_seed13
+  • Reached Target: True
+  • Last Distance From Target: 0.4797
+  • Time Elapsed: 44924.4000
+  • Drone Travel: 4059.0000
+  • Scout Travel: 72.7548
+  • Rover Travel: 62.4560
+  • Perceive Calls: 99830
+  • Step Calls: 139332
+  • Stuck Events: 0
+  • Score: 48282.3642
