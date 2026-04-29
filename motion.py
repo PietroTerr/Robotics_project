@@ -48,7 +48,7 @@ class RobotMovementBase:
     def __init__(
             self, map_api: MapAPI, robot_id: str, robot_type: str, start_pos: Tuple[float, float]
     ):
-        self.current_velocity = 0.0
+        self.current_speed = 0.0
         self.map_api = map_api
 
         self.robot_type = robot_type
@@ -126,7 +126,7 @@ class RobotMovementBase:
             "actual_velocity": result.actual_velocity,
         }
 
-        self.current_velocity = result.actual_velocity
+        self.current_speed = result.actual_velocity
         return movement_information
 
     def get_travel(self):

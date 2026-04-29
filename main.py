@@ -41,15 +41,16 @@ def main(terrain_map,
         goals=[target, start_pos],
 
     )
-    scout_state = AgentState(
-        agent=scout,
-        goals=[target, start_pos],
-        use_oscillation=True
-    )
     rover_state = AgentState(
         agent=rover,
         goals=[target],
         terminal=True,
+    )
+    scout_state = AgentState(
+        agent=scout,
+        goals=[target, start_pos],
+        use_oscillation=True,
+        state_to_protect=rover_state,
     )
     governor = Governor(terrain_map, [drone_state, scout_state, rover_state])
 
@@ -58,7 +59,7 @@ def main(terrain_map,
                      target=target, )
 
     distance_to_do =  math.sqrt((scout.x - target[0]) ** 2 + (scout.y - target[1]) ** 2)
-    alfa = 10
+    alfa = 6
     time_to_wait = alfa * (distance_to_do/scout.speed)
 
     step = 0
@@ -107,7 +108,7 @@ def main(terrain_map,
                             drone_position=(drone.x, drone.y),
                             scout_position=(scout.x, scout.y),
                             rover_position=(rover.x, rover.y),
-                            actual_scotu_velocity=movement_information[scout.x, scout.y]["actual_velocity"],
+                            actual_scout_velocity=movement_information[scout.x, scout.y]["actual_velocity"],
                             actual_rover_velocity=movement_information.get((rover.x, rover.y), {}).get(
                                 "actual_velocity", 0.0),                            )
 
@@ -156,8 +157,6 @@ if __name__ == "__main__":
     revisit_penalty_scout: float = 5.0
     revisit_penalty_drone: float = 5.0
     pessimistic_default: float = 0.2
-    zig_lookahead = 6.0
-    zig_width = 10.0
     main(terrain_map=terrain_map, start_pos=start, target=target, step_limit=100000,
          revisit_penalty_scout=revisit_penalty_scout, revisit_penalty_drone=revisit_penalty_drone,
          pessimistic_default=pessimistic_default)
